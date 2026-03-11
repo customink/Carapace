@@ -38,7 +38,7 @@ export interface ShellPtySession {
 const shellSessions = new Map<string, ShellPtySession>()
 
 const IDLE_THRESHOLD_MS = 4000 // For thinking spinner fallback
-const STARTUP_GRACE_MS = 30000 // Ignore bell arming during first 30s (shell init + claude startup + trust prompt)
+const STARTUP_GRACE_MS = 8000 // Ignore bell arming during first 8s (shell init + claude startup)
 const SIGNIFICANT_CHUNK_SIZE = 80 // Chunks smaller than this are likely status bar updates (ccstatusline)
 
 let onAttentionCallback: ((pid: number) => void) | null = null
@@ -376,6 +376,17 @@ export function updateLabel(pid: number, label: string): void {
   const session = getByPid(pid)
   if (session) session.label = label
 }
+
+/** Find all PTY sessions whose CWD encodes to the given project dir name */
+export function getByEncodedCwd(encodedDir: string): PtySession[] {
+  const results: PtySession[] = []
+  for (const session of sessions.values()) {
+    const encoded = session.cwd.replace(/\//g, '-')
+    if (encoded === encodedDir) results.push(session)
+  }
+  return results
+}
+
 
 function updateDockVisibility(): void {
   if (sessions.size > 0) {

@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { BrowserWindow, ipcMain, app } from 'electron'
 import { SNIPPET_ICONS } from '@shared/constants/snippet-icons'
 
 export interface SnippetInput {
@@ -31,9 +31,12 @@ export function showSnippetDialog(): Promise<SnippetInput | null> {
     const channelOk = `snippet-ok-${win.id}`
     const channelCancel = `snippet-cancel-${win.id}`
 
+    const channelEmoji = `snippet-emoji-${win.id}`
+
     const cleanup = () => {
       ipcMain.removeAllListeners(channelOk)
       ipcMain.removeAllListeners(channelCancel)
+      ipcMain.removeAllListeners(channelEmoji)
     }
 
     ipcMain.once(channelOk, (_e, icon: string, label: string, prompt: string) => {
@@ -48,14 +51,20 @@ export function showSnippetDialog(): Promise<SnippetInput | null> {
       resolve(null)
     })
 
+    ipcMain.on(channelEmoji, () => {
+      app.showEmojiPanel()
+    })
+
     win.on('closed', () => {
       cleanup()
       resolve(null)
     })
 
-    // Build icon grid HTML using emoji characters
-    const iconGridHtml = Object.entries(SNIPPET_ICONS).map(([key, emoji]) => {
-      return `<button class="icon-opt" data-icon="${key}" onclick="selectIcon('${key}')" title="${key}">${emoji}</button>`
+    // Quick-pick favorites row (subset of most useful icons)
+    const quickPicks = ['rocket', 'lightning', 'bug', 'code', 'fire', 'wand', 'test', 'search', 'shield', 'wrench', 'broom', 'target']
+    const quickPickHtml = quickPicks.map(key => {
+      const emoji = SNIPPET_ICONS[key] || ''
+      return `<button class="icon-opt" data-emoji="${emoji}" onclick="selectEmoji('${emoji}')" title="${key}">${emoji}</button>`
     }).join('')
 
     const html = `<!DOCTYPE html>
@@ -80,13 +89,35 @@ export function showSnippetDialog(): Promise<SnippetInput | null> {
   input[type="text"]:focus, textarea:focus { border-color: rgba(124,58,237,0.6); }
   textarea { resize: none; height: 80px; }
   .field { margin-bottom: 10px; }
-  .icon-grid {
+  .icon-row {
     -webkit-app-region: no-drag;
-    display: flex; flex-wrap: wrap; gap: 4px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .emoji-preview {
+    width: 42px; height: 42px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.15);
+    background: rgba(0,0,0,0.3); font-size: 22px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .emoji-preview.has-emoji { border-color: #7C3AED; background: rgba(124,58,237,0.2); }
+  .emoji-input {
+    width: 56px !important; font-size: 22px !important; text-align: center;
+    padding: 6px 4px !important; flex-shrink: 0;
+  }
+  .pick-btn {
+    -webkit-app-region: no-drag;
+    padding: 6px 12px; font-size: 12px; border-radius: 6px; border: none;
+    background: rgba(255,255,255,0.1); color: #e2e8f0; cursor: pointer;
+    font-weight: 500; white-space: nowrap;
+  }
+  .pick-btn:hover { background: rgba(255,255,255,0.18); }
+  .quick-picks {
+    -webkit-app-region: no-drag;
+    display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px;
   }
   .icon-opt {
-    width: 36px; height: 36px; border-radius: 6px; border: 2px solid transparent;
-    background: rgba(255,255,255,0.06); font-size: 18px;
+    width: 32px; height: 32px; border-radius: 6px; border: 2px solid transparent;
+    background: rgba(255,255,255,0.06); font-size: 16px;
     cursor: pointer; display: flex; align-items: center; justify-content: center;
     transition: all 0.15s ease; padding: 0;
   }
@@ -115,7 +146,12 @@ export function showSnippetDialog(): Promise<SnippetInput | null> {
   </div>
   <div class="field">
     <label>Icon</label>
-    <div class="icon-grid">${iconGridHtml}</div>
+    <div class="icon-row">
+      <div class="emoji-preview" id="emojiPreview"></div>
+      <input id="emojiInput" class="emoji-input" type="text" placeholder="?" maxlength="4" />
+      <button class="pick-btn" onclick="pickEmoji()">Emoji Picker...</button>
+    </div>
+    <div class="quick-picks">${quickPickHtml}</div>
   </div>
   <div class="buttons">
     <button class="cancel" onclick="require('electron').ipcRenderer.send('${channelCancel}')">Cancel</button>
@@ -126,15 +162,42 @@ export function showSnippetDialog(): Promise<SnippetInput | null> {
     const labelEl = document.getElementById('label');
     const promptEl = document.getElementById('prompt');
     const saveBtn = document.getElementById('saveBtn');
+    const emojiInput = document.getElementById('emojiInput');
+    const emojiPreview = document.getElementById('emojiPreview');
     let selectedIcon = '';
 
-    function selectIcon(key) {
-      selectedIcon = key;
+    function setIcon(emoji) {
+      selectedIcon = emoji;
+      emojiPreview.textContent = emoji;
+      emojiPreview.classList.toggle('has-emoji', !!emoji);
+      emojiInput.value = emoji;
       document.querySelectorAll('.icon-opt').forEach(el => {
-        el.classList.toggle('selected', el.dataset.icon === key);
+        el.classList.toggle('selected', el.dataset.emoji === emoji);
       });
       validate();
     }
+
+    function selectEmoji(emoji) {
+      setIcon(emoji);
+    }
+
+    function pickEmoji() {
+      emojiInput.value = '';
+      emojiInput.focus();
+      ipcRenderer.send('${channelEmoji}');
+    }
+
+    // Detect emoji typed or inserted via IME/emoji picker
+    emojiInput.addEventListener('input', () => {
+      const val = emojiInput.value.trim();
+      if (val) setIcon(val);
+    });
+
+    // Polling fallback for macOS emoji picker IME insertion
+    setInterval(() => {
+      const val = emojiInput.value.trim();
+      if (val && val !== selectedIcon) setIcon(val);
+    }, 200);
 
     function validate() {
       saveBtn.disabled = !(labelEl.value.trim() && promptEl.value.trim() && selectedIcon);

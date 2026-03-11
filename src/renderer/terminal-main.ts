@@ -34,6 +34,9 @@ declare global {
       onSnippetsUpdated: (callback: (snippets: Snippet[]) => void) => () => void
       getGitHubUrl: () => Promise<string | null>
       openGitHub: () => void
+      toggleFileTree: () => void
+      onFileTreeClosed: (callback: () => void) => () => void
+      showContextMenu: (hasSelection: boolean) => void
       slackCompose: () => void
       onTitleUpdated: (callback: (title: string) => void) => () => void
       onColorUpdated: (callback: (color: string) => void) => () => void
@@ -90,6 +93,13 @@ function setupCopyPaste(terminal: Terminal, sendData: (data: string) => void) {
     }
 
     return true
+  })
+}
+
+function setupContextMenu(terminal: Terminal, element: HTMLElement) {
+  element.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    window.carapaceTerminal.showContextMenu(terminal.hasSelection())
   })
 }
 
@@ -180,6 +190,7 @@ async function init() {
   })
 
   setupCopyPaste(claudeTerminal, (data) => window.carapaceTerminal.sendData(data))
+  setupContextMenu(claudeTerminal, document.getElementById('terminal')!)
   setupDragDrop(document.getElementById('terminal')!, (data) => window.carapaceTerminal.sendData(data), () => claudeTerminal.focus())
 
   // Paste images from clipboard (text paste is handled by setupCopyPaste)
@@ -239,6 +250,7 @@ async function init() {
     })
 
     setupCopyPaste(shellTerminal, (data) => window.carapaceTerminal.shellSendData(data))
+    setupContextMenu(shellTerminal, document.getElementById('shell-terminal')!)
     setupDragDrop(document.getElementById('shell-terminal')!, (data) => window.carapaceTerminal.shellSendData(data), () => shellTerminal!.focus())
 
     // Tab switching
@@ -285,13 +297,15 @@ async function init() {
   const notesBtn = document.getElementById('notes-btn')!
   const skillsBtn = document.getElementById('skills-btn')!
   const skillbrowserBtn = document.getElementById('skillbrowser-btn')!
+  const filetreeBtn = document.getElementById('filetree-btn')!
   const modelBtn = document.getElementById('model-btn')!
   let notesOpen = false
   let skillsOpen = false
   let skillbrowserOpen = false
+  let filetreeOpen = false
   let modelSelectorOpen = false
 
-  function closeOtherDrawers(except: 'notes' | 'skills' | 'skillbrowser' | 'modelselector') {
+  function closeOtherDrawers(except: 'notes' | 'skills' | 'skillbrowser' | 'filetree' | 'modelselector') {
     if (except !== 'notes' && notesOpen) {
       notesOpen = false
       notesBtn.classList.remove('active')
@@ -306,6 +320,11 @@ async function init() {
       skillbrowserOpen = false
       skillbrowserBtn.classList.remove('active')
       window.carapaceTerminal.toggleSkillBrowser()
+    }
+    if (except !== 'filetree' && filetreeOpen) {
+      filetreeOpen = false
+      filetreeBtn.classList.remove('active')
+      window.carapaceTerminal.toggleFileTree()
     }
     if (except !== 'modelselector' && modelSelectorOpen) {
       modelSelectorOpen = false
@@ -348,6 +367,18 @@ async function init() {
   window.carapaceTerminal.onSkillBrowserClosed(() => {
     skillbrowserOpen = false
     skillbrowserBtn.classList.remove('active')
+  })
+
+  filetreeBtn.addEventListener('click', () => {
+    if (!filetreeOpen) closeOtherDrawers('filetree')
+    filetreeOpen = !filetreeOpen
+    filetreeBtn.classList.toggle('active', filetreeOpen)
+    window.carapaceTerminal.toggleFileTree()
+  })
+
+  window.carapaceTerminal.onFileTreeClosed(() => {
+    filetreeOpen = false
+    filetreeBtn.classList.remove('active')
   })
 
   modelBtn.addEventListener('click', () => {
@@ -432,7 +463,7 @@ async function init() {
       const btn = document.createElement('button')
       btn.className = 'sidebar-btn'
       btn.title = snippet.label
-      btn.textContent = SNIPPET_ICONS[snippet.icon] || SNIPPET_ICONS.bookmark
+      btn.textContent = SNIPPET_ICONS[snippet.icon] || snippet.icon || SNIPPET_ICONS.bookmark
       btn.style.fontSize = '15px'
 
       btn.addEventListener('click', () => {

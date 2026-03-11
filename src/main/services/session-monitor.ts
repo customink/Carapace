@@ -10,6 +10,8 @@ import type { ParsedSession } from './jsonl-parser'
 export interface SessionUpdate {
   sessionId: string
   projectPath: string
+  /** Raw encoded project dir name (e.g. "-Users-ivan-myproject") for exact matching */
+  projectEncoded: string
   parsed: ParsedSession
   cost: number
   contextPercent: number
@@ -23,21 +25,18 @@ export class SessionMonitor extends EventEmitter {
   start(): void {
     if (this.watcher) return
 
-    this.watcher = watch(`${PROJECTS_DIR}/**/*.jsonl`, {
+    this.watcher = watch(PROJECTS_DIR, {
       ignoreInitial: true,
-      awaitWriteFinish: {
-        stabilityThreshold: 300,
-        pollInterval: 150
-      }
+      depth: 2,
     })
 
-    this.watcher.on('change', (filePath: string) => {
+    const handleEvent = (filePath: string) => {
+      if (!filePath.endsWith('.jsonl')) return
       this.debouncedChange(filePath)
-    })
+    }
 
-    this.watcher.on('add', (filePath: string) => {
-      this.debouncedChange(filePath)
-    })
+    this.watcher.on('change', handleEvent)
+    this.watcher.on('add', handleEvent)
   }
 
   stop(): void {
@@ -95,11 +94,12 @@ export class SessionMonitor extends EventEmitter {
 
     const contextPercent = computeContextPercent(parsed.metrics.contextLength, parsed.model)
 
-    const projectPath = '/' + (projectEncoded || '').replace(/-/g, '/')
+    const projectPath = (projectEncoded || '').replace(/-/g, '/')
 
     const update: SessionUpdate = {
       sessionId,
       projectPath,
+      projectEncoded: projectEncoded || '',
       parsed,
       cost,
       contextPercent

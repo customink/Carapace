@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, app, shell } from 'electron'
+import { ipcMain, BrowserWindow, app, shell, Menu } from 'electron'
 import { exec } from 'child_process'
 import { SESSION_COLORS } from '@shared/constants/colors'
 import { createTerminalWindow } from '../windows/terminal'
@@ -7,6 +7,7 @@ import { toggleNotesWindow } from '../windows/notes'
 import { toggleSkillsWindow } from '../windows/skills'
 import { toggleSkillBrowserWindow } from '../windows/skill-browser'
 import { toggleModelSelectorWindow } from '../windows/model-selector'
+import { toggleFileTreeWindow } from '../windows/file-tree'
 import { IPC_CHANNELS } from '../ipc/channels'
 import { recordSession } from './session-history'
 import * as ptyManager from './pty-manager'
@@ -133,6 +134,37 @@ export function registerTerminalIpc(): void {
     if (session) ptyManager.resizeShellPty(session.ptyId, cols, rows)
   })
 
+  // Right-click context menu for terminal
+  ipcMain.on('terminal:context-menu', (event, hasSelection: boolean) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const menu = Menu.buildFromTemplate([
+      {
+        label: 'Copy',
+        role: 'copy',
+        enabled: hasSelection,
+      },
+      {
+        label: 'Paste',
+        role: 'paste',
+      },
+      { type: 'separator' },
+      {
+        label: 'Select All',
+        role: 'selectAll',
+      },
+      { type: 'separator' },
+      {
+        label: 'Clear Terminal',
+        click: () => {
+          const session = ptyManager.getByWindowId(win.id)
+          if (session) ptyManager.writeToPty(session.ptyId, 'clear\n')
+        },
+      },
+    ])
+    menu.popup({ window: win })
+  })
+
   // Toggle notes floating window
   ipcMain.on('terminal:toggle-notes', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -166,6 +198,15 @@ export function registerTerminalIpc(): void {
     const session = ptyManager.getByWindowId(win.id)
     if (!session) return
     toggleSkillBrowserWindow(win, session.color, session.cwd)
+  })
+
+  // Toggle file tree drawer
+  ipcMain.on('terminal:toggle-filetree', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const session = ptyManager.getByWindowId(win.id)
+    if (!session) return
+    toggleFileTreeWindow(win, session.color, session.cwd)
   })
 
   // Toggle model selector drawer

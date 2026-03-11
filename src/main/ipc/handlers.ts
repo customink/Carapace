@@ -34,8 +34,8 @@ let broadcastTimer: ReturnType<typeof setTimeout> | null = null
 let broadcastPending = false
 const BROADCAST_THROTTLE_MS = 1500
 
-// Track completion counts per session to detect new completions
-const previousCompletionCounts = new Map<string, number>()
+// Track completion counts per JSONL file to detect new completions (direct path from monitor)
+const directCompletionCounts = new Map<string, number>()
 
 function scheduleBroadcast(): void {
   broadcastPending = true
@@ -51,22 +51,6 @@ function scheduleBroadcast(): void {
       if (!win.isDestroyed()) {
         win.webContents.send(IPC_CHANNELS.SESSIONS_UPDATED, allSessions)
       }
-    }
-
-    // Detect new completions and fire bell / clear thinking
-    for (const session of allSessions) {
-      if (session.status !== 'active' || !session.managed || !session.pid) continue
-
-      const count = session.completionCount || 0
-      const hasPrevious = previousCompletionCounts.has(session.id)
-      const prevCount = previousCompletionCounts.get(session.id) || 0
-
-      if (count > prevCount && hasPrevious) {
-        // New completion detected — fire bell and clear thinking
-        ptyManager.fireBell(session.pid)
-        ptyManager.clearThinking(session.pid)
-      }
-      previousCompletionCounts.set(session.id, count)
     }
 
     // Update terminal window titles with model info when detected
@@ -98,8 +82,25 @@ export function startSessionMonitor(): void {
 
   monitor = new SessionMonitor()
 
-  monitor.on('session:updated', (_update: SessionUpdate) => {
+  monitor.on('session:updated', (update: SessionUpdate) => {
     scheduleBroadcast()
+
+    // Direct completion detection — bypasses broadcast throttle and discovery cache.
+    // The monitor already parsed the JSONL and has the completionCount.
+    const fileKey = `${update.projectPath}:${update.sessionId}`
+    const count = update.parsed.completionCount || 0
+    const hasPrevious = directCompletionCounts.has(fileKey)
+    const prevCount = directCompletionCounts.get(fileKey) || 0
+
+    if (count > prevCount && hasPrevious) {
+      // New completion detected — find PTY session by encoded CWD match
+      const ptySessions = ptyManager.getByEncodedCwd(update.projectEncoded)
+      for (const ps of ptySessions) {
+        ptyManager.fireBell(ps.pid)
+        ptyManager.clearThinking(ps.pid)
+      }
+    }
+    directCompletionCounts.set(fileKey, count)
   })
 
   monitor.start()

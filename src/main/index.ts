@@ -84,14 +84,92 @@ app.whenReady().then(() => {
       click: () => { ptyManager.updateLabel(pid, ch); refreshOrb() }
     }))
 
-    // Popular emojis
-    const emojis = ['🚀', '🔥', '⚡', '💎', '🎯', '🧪', '🔧', '📦', '🐛', '🎨', '🌟', '💡', '🔒', '📝', '🎵', '🏗️', '🧹', '🔍', '⏳', '✅']
-    const emojiItems: Electron.MenuItemConstructorOptions[] = emojis.map(em => ({
-      label: em,
-      type: 'radio' as const,
-      checked: currentLabel === em,
-      click: () => { ptyManager.updateLabel(pid, em); refreshOrb() }
-    }))
+    // Emoji picker — opens a small dialog with native macOS emoji panel
+    const showEmojiPicker = () => {
+      const channelOk = `emoji-ok-${Date.now()}`
+      const channelCancel = `emoji-cancel-${Date.now()}`
+      const pickerWin = new BrowserWindow({
+        width: 340,
+        height: 80,
+        frame: false,
+        resizable: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        transparent: false,
+        backgroundColor: '#1a1a2e',
+        webPreferences: {
+          nodeIntegration: true,
+          contextIsolation: false,
+        },
+      })
+
+      const html = `<!DOCTYPE html>
+<html><head><style>
+  body { margin:0; padding:12px 16px; background:#1a1a2e; display:flex; align-items:center; gap:8px; font-family:-apple-system,sans-serif; }
+  input { width:60px; font-size:24px; padding:6px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.15);
+    background:rgba(255,255,255,0.08); color:#fff; outline:none; text-align:center; }
+  input:focus { border-color:rgba(255,255,255,0.3); }
+  button { padding:6px 14px; border-radius:8px; border:none; background:#7C3AED; color:#fff;
+    font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; }
+  button:hover { background:#6D28D9; }
+  button.cancel { background:rgba(255,255,255,0.1); }
+  button.cancel:hover { background:rgba(255,255,255,0.18); }
+  button:disabled { opacity:0.3; cursor:default; }
+</style></head><body>
+  <input id="e" placeholder="?" autofocus />
+  <button id="ok" disabled>Save</button>
+  <button class="cancel" id="x">Cancel</button>
+  <script>
+    const {ipcRenderer} = require('electron');
+    const input = document.getElementById('e');
+    const btn = document.getElementById('ok');
+    function updateBtn() { btn.disabled = !input.value.trim(); }
+    function submit() {
+      const val = input.value.trim();
+      if (val) ipcRenderer.send('${channelOk}', val);
+    }
+    // input event + polling fallback (macOS emoji picker uses IME which may skip input events)
+    input.addEventListener('input', updateBtn);
+    setInterval(updateBtn, 200);
+    btn.addEventListener('click', submit);
+    document.getElementById('x').addEventListener('click', () => ipcRenderer.send('${channelCancel}'));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && input.value.trim()) { e.preventDefault(); submit(); }
+      if (e.key === 'Escape') ipcRenderer.send('${channelCancel}');
+    });
+  </script>
+</body></html>`
+
+      pickerWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+
+      pickerWin.webContents.once('did-finish-load', () => {
+        app.showEmojiPanel()
+      })
+
+      let resolved = false
+      const cleanup = () => {
+        if (resolved) return
+        resolved = true
+        ipcMain.removeAllListeners(channelOk)
+        ipcMain.removeAllListeners(channelCancel)
+      }
+
+      ipcMain.once(channelOk, (_e: Electron.IpcMainEvent, emoji: string) => {
+        cleanup()
+        if (!pickerWin.isDestroyed()) pickerWin.close()
+        if (emoji) {
+          ptyManager.updateLabel(pid, emoji)
+          refreshOrb()
+        }
+      })
+
+      ipcMain.once(channelCancel, () => {
+        cleanup()
+        if (!pickerWin.isDestroyed()) pickerWin.close()
+      })
+
+      pickerWin.on('closed', cleanup)
+    }
 
     // Color options
     const colorNames: Record<string, string> = {
@@ -130,7 +208,7 @@ app.whenReady().then(() => {
           {
             label: 'Default',
             type: 'radio',
-            checked: currentLabel === '' || (currentLabel.length === 1 && !/[A-Z]/.test(currentLabel) && !emojis.includes(currentLabel)),
+            checked: currentLabel === '' || (currentLabel.length === 1 && !/[A-Z]/.test(currentLabel)),
             click: () => { ptyManager.updateLabel(pid, ''); refreshOrb() }
           },
           { type: 'separator' },
@@ -138,17 +216,13 @@ app.whenReady().then(() => {
         ]
       },
       {
-        label: 'Set Emoji',
-        submenu: [
-          {
-            label: 'None',
-            type: 'radio',
-            checked: !emojis.includes(currentLabel),
-            click: () => { ptyManager.updateLabel(pid, ''); refreshOrb() }
-          },
-          { type: 'separator' },
-          ...emojiItems,
-        ]
+        label: 'Set Emoji...',
+        click: showEmojiPicker
+      },
+      {
+        label: 'Clear Emoji',
+        enabled: currentLabel.length > 1 || /\p{Emoji}/u.test(currentLabel),
+        click: () => { ptyManager.updateLabel(pid, ''); refreshOrb() }
       },
       {
         label: 'Change Color',

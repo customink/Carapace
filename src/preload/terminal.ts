@@ -91,6 +91,18 @@ const terminalApi = {
   getGitHubUrl: () => ipcRenderer.invoke('terminal:github-url'),
   openGitHub: () => ipcRenderer.send('terminal:open-github'),
 
+  // File tree
+  toggleFileTree: () => ipcRenderer.send('terminal:toggle-filetree'),
+
+  onFileTreeClosed: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('terminal:filetree-closed', handler)
+    return () => { ipcRenderer.removeListener('terminal:filetree-closed', handler) }
+  },
+
+  // Context menu
+  showContextMenu: (hasSelection: boolean) => ipcRenderer.send('terminal:context-menu', hasSelection),
+
   // Slack
   slackCompose: () => ipcRenderer.send('slack:compose'),
 
