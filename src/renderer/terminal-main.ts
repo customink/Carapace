@@ -80,6 +80,9 @@ function setupCopyPaste(terminal: Terminal, sendData: (data: string) => void) {
     }
 
     if (event.metaKey && event.key === 'v') {
+      // preventDefault stops the browser from also firing a paste event,
+      // which xterm would pick up and send a second copy via onData
+      event.preventDefault()
       navigator.clipboard.readText().then(text => {
         sendData(text)
       })
@@ -179,13 +182,13 @@ async function init() {
   setupCopyPaste(claudeTerminal, (data) => window.carapaceTerminal.sendData(data))
   setupDragDrop(document.getElementById('terminal')!, (data) => window.carapaceTerminal.sendData(data), () => claudeTerminal.focus())
 
-  // Paste images from clipboard
+  // Paste images from clipboard (text paste is handled by setupCopyPaste)
   document.addEventListener('paste', async (e) => {
     if (!e.clipboardData) return
     const imageItem = Array.from(e.clipboardData.items).find(
       item => item.type.startsWith('image/')
     )
-    if (!imageItem) return
+    if (!imageItem) return // Only handle image pastes — text is handled by Cmd+V in setupCopyPaste
     e.preventDefault()
     const blob = imageItem.getAsFile()
     if (!blob) return

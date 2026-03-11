@@ -72,6 +72,11 @@ export async function detectActiveProcesses(): Promise<ActiveProcess[]> {
       }
     }
 
+    // Deduplicate: multiple PIDs can map to the same Claude session
+    // (e.g., shell process running `exec claude` + the actual claude process).
+    // Keep only one entry per transcript file, preferring the one with a PTY match.
+    const seenTranscripts = new Map<string, ActiveProcess>()
+
     for (const entry of pidEntries) {
       const cwd = pidToCwd.get(entry.pid)
       if (!cwd) continue
@@ -89,8 +94,23 @@ export async function detectActiveProcesses(): Promise<ActiveProcess[]> {
         }
       }
 
-      processes.push({ pid: entry.pid, ppid: entry.ppid, cwd, sessionId, projectDir, transcriptFile })
+      const proc: ActiveProcess = { pid: entry.pid, ppid: entry.ppid, cwd, sessionId, projectDir, transcriptFile }
+
+      // Deduplicate by transcript file (or by CWD if no transcript)
+      const dedupeKey = transcriptFile || `cwd:${cwd}`
+      const existing = seenTranscripts.get(dedupeKey)
+      if (!existing) {
+        seenTranscripts.set(dedupeKey, proc)
+      } else {
+        // Keep the process with the lower PID (the parent/original process),
+        // as that's what pty-manager tracks
+        if (proc.pid < existing.pid) {
+          seenTranscripts.set(dedupeKey, proc)
+        }
+      }
     }
+
+    processes.push(...seenTranscripts.values())
   } catch {
     // ps failed
   }

@@ -28,8 +28,13 @@ export async function discoverSessionsAsync(): Promise<SessionState[]> {
   // 1. Active sessions — each running Claude PID is a unique session
   const activeProcesses = await detectActiveProcesses()
   const usedSessionIds = new Set<string>()
+  const seenPids = new Set<number>()
 
   for (const proc of activeProcesses) {
+    // Skip if we've already seen this PID (shouldn't happen after process-detector dedup, but safety net)
+    if (seenPids.has(proc.pid)) continue
+    seenPids.add(proc.pid)
+
     let sessionId: string
     if (proc.sessionId && !usedSessionIds.has(proc.sessionId)) {
       sessionId = proc.sessionId
