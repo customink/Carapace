@@ -58,9 +58,10 @@ function scheduleBroadcast(): void {
       if (session.status !== 'active' || !session.managed || !session.pid) continue
 
       const count = session.completionCount || 0
+      const hasPrevious = previousCompletionCounts.has(session.id)
       const prevCount = previousCompletionCounts.get(session.id) || 0
 
-      if (count > prevCount && prevCount > 0) {
+      if (count > prevCount && hasPrevious) {
         // New completion detected — fire bell and clear thinking
         ptyManager.fireBell(session.pid)
         ptyManager.clearThinking(session.pid)
