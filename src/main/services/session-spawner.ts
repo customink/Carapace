@@ -9,7 +9,8 @@ import { toggleSkillBrowserWindow } from '../windows/skill-browser'
 import { toggleModelSelectorWindow } from '../windows/model-selector'
 import { toggleFileTreeWindow } from '../windows/file-tree'
 import { IPC_CHANNELS } from '../ipc/channels'
-import { recordSession } from './session-history'
+import { recordSession, updateHistoryEntry } from './session-history'
+import { discoverSessionsAsync, invalidateCache } from './session-discovery'
 import * as ptyManager from './pty-manager'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -21,7 +22,7 @@ let spawnCount = 0
  * Spawn a new Claude Code session in an embedded Electron terminal window.
  * Uses xterm.js + node-pty for a fully controlled terminal experience.
  */
-export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string, colorOverride?: string, shellTab?: boolean, existingPtyId?: string): void {
+export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string, colorOverride?: string, shellTab?: boolean, existingPtyId?: string, label?: string): void {
   const color = colorOverride || SESSION_COLORS[spawnCount % SESSION_COLORS.length]!
   spawnCount++
 
@@ -38,6 +39,7 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
     shellTab: !!shellTab,
     ptyId,
     startTime: new Date().toISOString(),
+    color,
   })
 
   // Ensure dock is visible so terminal windows can show
@@ -58,6 +60,12 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
       title,
     })
 
+    // Restore label from history if reviving
+    if (label) {
+      const session = ptyManager.getByWindowId(win.id)
+      if (session) session.label = label
+    }
+
     if (shellTab && shellPtyId) {
       ptyManager.createShellPty({
         ptyId: shellPtyId,
@@ -67,6 +75,15 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
         rows: 24,
       })
     }
+
+    // Immediately broadcast updated sessions so the orb shows the new mini-orb
+    invalidateCache()
+    discoverSessionsAsync().then(sessions => {
+      const orb = getOrbWindow()
+      if (orb && !orb.isDestroyed()) {
+        orb.webContents.send(IPC_CHANNELS.SESSIONS_UPDATED, sessions)
+      }
+    })
   })
 
   // Clear attention bell when user focuses the terminal window directly
@@ -81,10 +98,23 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
     }
   })
 
-  // When window is closed by user, clean up PTY(s)
+  // When window is closed by user, save state, clean up PTY(s), and update orb
   win.on('closed', () => {
+    // Save final label/color to history before destroying
+    const session = ptyManager.getByWindowId(win.id)
+    if (session) {
+      updateHistoryEntry(ptyId, { label: session.label, color: session.color })
+    }
     ptyManager.destroyPty(ptyId)
     if (shellPtyId) ptyManager.destroyShellPty(shellPtyId)
+
+    invalidateCache()
+    discoverSessionsAsync().then(sessions => {
+      const orb = getOrbWindow()
+      if (orb && !orb.isDestroyed()) {
+        orb.webContents.send(IPC_CHANNELS.SESSIONS_UPDATED, sessions)
+      }
+    })
   })
 }
 

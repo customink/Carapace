@@ -365,6 +365,11 @@ export function getAllWindowIds(): number[] {
   return Array.from(sessions.values()).map(s => s.windowId)
 }
 
+/** Get all active PTY sessions */
+export function getAllSessions(): PtySession[] {
+  return Array.from(sessions.values())
+}
+
 /** Update the color for a session (by PID) */
 export function updateColor(pid: number, color: string): void {
   const session = getByPid(pid)

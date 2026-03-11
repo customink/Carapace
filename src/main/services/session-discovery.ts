@@ -121,6 +121,51 @@ export async function discoverSessionsAsync(): Promise<SessionState[]> {
     }
   }
 
+  // 1b. Ensure all PTY-managed sessions appear even if process detection missed them
+  // (e.g. claude process hasn't started yet right after spawn)
+  const matchedPtyIds = new Set(
+    sessions.filter(s => s.managed).map(s => {
+      const pty = ptyManager.getByPid(s.pid!) || (s.pid ? ptyManager.getByPid(s.pid) : undefined)
+      return pty?.ptyId
+    }).filter(Boolean)
+  )
+
+  for (const pty of ptyManager.getAllSessions()) {
+    if (matchedPtyIds.has(pty.ptyId)) continue
+    // Check if any session already matched this PTY by window ID
+    const alreadyMatched = sessions.some(s => s.managed && ptyManager.getByPid(s.pid!)?.ptyId === pty.ptyId)
+    if (alreadyMatched) continue
+
+    const sessionId = `pty-${pty.ptyId}`
+    if (seenIds.has(sessionId)) continue
+    seenIds.add(sessionId)
+
+    sessions.push({
+      id: sessionId,
+      projectPath: pty.cwd,
+      projectName: extractProjectName(pty.cwd),
+      summary: '',
+      firstPrompt: '',
+      startTime: new Date(pty.createdAt).toISOString(),
+      durationMinutes: 0,
+      status: 'active',
+      model: 'claude-sonnet-4-6',
+      cost: 0,
+      contextPercent: 0,
+      tokens: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0 },
+      toolCounts: {},
+      userMessageCount: 0,
+      assistantMessageCount: 0,
+      pid: pty.pid,
+      color: pty.color,
+      title: pty.title || '',
+      label: pty.label || '',
+      managed: true,
+      isThinking: pty.isThinking || false,
+      completionCount: 0
+    })
+  }
+
   // 2. Historical sessions — from session-meta files (limit to recent 20 for speed)
   if (fs.existsSync(SESSION_META_DIR)) {
     try {

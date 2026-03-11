@@ -7,7 +7,7 @@ import { focusSessionTerminal } from './services/terminal-focus'
 import * as ptyManager from './services/pty-manager'
 import { showSessionOptionsDialog } from './windows/prompt'
 import { loadHistory, copyNotes } from './services/session-history'
-import { loadSnippets, addSnippet, deleteSnippet } from './services/snippet-store'
+import { loadSnippets, addSnippet, updateSnippet, deleteSnippet } from './services/snippet-store'
 import { showSnippetDialog } from './windows/snippet-dialog'
 import { loadAppSettings, saveAppSettings } from './services/app-settings-store'
 import { showSettingsWindow } from './windows/settings'
@@ -277,9 +277,10 @@ app.whenReady().then(() => {
             const d = new Date(entry.startTime)
             const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
             const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+            const prefix = entry.label ? `${entry.label} ` : ''
             const label = entry.title
-              ? `${entry.title} — ${dateStr} ${timeStr}`
-              : `${entry.folder || 'Home'} — ${dateStr} ${timeStr}`
+              ? `${prefix}${entry.title} — ${dateStr} ${timeStr}`
+              : `${prefix}${entry.folder || 'Home'} — ${dateStr} ${timeStr}`
             return {
               label,
               click: () => {
@@ -294,9 +295,10 @@ app.whenReady().then(() => {
                   entry.bypass,
                   entry.title || undefined,
                   entry.folder || undefined,
-                  undefined,
+                  entry.color || undefined,
                   entry.shellTab,
                   newPtyId,
+                  entry.label || undefined,
                 )
               }
             }
@@ -381,6 +383,18 @@ app.whenReady().then(() => {
     const menu = Menu.buildFromTemplate([
       { label: snippet.label, enabled: false },
       { type: 'separator' },
+      {
+        label: 'Edit...',
+        click: async () => {
+          const result = await showSnippetDialog({ icon: snippet.icon, label: snippet.label, prompt: snippet.prompt })
+          if (result) {
+            const updated = updateSnippet(id, result.icon, result.label, result.prompt)
+            for (const win of BrowserWindow.getAllWindows()) {
+              win.webContents.send(IPC_CHANNELS.SNIPPETS_UPDATED, updated)
+            }
+          }
+        }
+      },
       {
         label: 'Delete',
         click: () => {

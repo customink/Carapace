@@ -252,7 +252,7 @@ export function FloatingOrb() {
               fontWeight: 700,
               lineHeight: 1,
               color: '#fff',
-              textShadow: `0 0 6px ${orb.rawColor}, 0 0 12px ${orb.rawColor}, 0 0 3px rgba(255,255,255,0.5)`,
+              textShadow: `0 0 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.7), 0 0 6px ${orb.rawColor}80`,
               letterSpacing: '-0.3px',
               whiteSpace: 'nowrap',
             }}

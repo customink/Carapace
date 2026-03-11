@@ -32,6 +32,17 @@ export function addSnippet(icon: string, label: string, prompt: string): Snippet
   return snippets
 }
 
+export function updateSnippet(id: string, icon: string, label: string, prompt: string): Snippet[] {
+  const snippets = loadSnippets()
+  const idx = snippets.findIndex(s => s.id === id)
+  if (idx !== -1) {
+    snippets[idx] = { ...snippets[idx]!, id, icon, label, prompt }
+  }
+  ensureDir()
+  writeFileSync(SNIPPETS_FILE, JSON.stringify(snippets, null, 2))
+  return snippets
+}
+
 export function deleteSnippet(id: string): Snippet[] {
   const snippets = loadSnippets().filter(s => s.id !== id)
   ensureDir()

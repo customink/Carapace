@@ -1,9 +1,13 @@
 import { ipcMain, BrowserWindow } from 'electron'
+import * as fs from 'fs'
+import * as path from 'path'
 import { IPC_CHANNELS } from './channels'
 import { discoverSessionsAsync, getCachedSessions } from '../services/session-discovery'
 import { readCredentials, readSettings } from '../services/settings-reader'
 import { fetchUsageData } from '../services/usage-fetcher'
 import { SessionMonitor } from '../services/session-monitor'
+import { parseSessionJsonl } from '../services/jsonl-parser'
+import { PROJECTS_DIR } from '@shared/constants/paths'
 import { formatModelName } from '@shared/utils/format'
 import * as ptyManager from '../services/pty-manager'
 import type { SessionUpdate } from '../services/session-monitor'
@@ -104,6 +108,54 @@ export function startSessionMonitor(): void {
   })
 
   monitor.start()
+  startBellPolling()
+}
+
+// ─── Fallback bell polling ───
+// Checks every 30s for completions that the file watcher may have missed.
+const POLL_INTERVAL_MS = 30_000
+let pollTimer: ReturnType<typeof setInterval> | null = null
+const pollCompletionCounts = new Map<string, number>()
+
+function startBellPolling(): void {
+  if (pollTimer) return
+  pollTimer = setInterval(() => {
+    const ptySessions = ptyManager.getAllSessions()
+    if (ptySessions.length === 0) return
+
+    for (const session of ptySessions) {
+      // Find the JSONL files for this PTY by scanning the encoded CWD dir
+      const encoded = session.cwd.replace(/\//g, '-')
+      const projectDir = path.join(PROJECTS_DIR, encoded)
+      if (!fs.existsSync(projectDir)) continue
+
+      try {
+        const files = fs.readdirSync(projectDir).filter(f => f.endsWith('.jsonl'))
+        for (const file of files) {
+          const filePath = path.join(projectDir, file)
+          const fileKey = `poll:${encoded}:${file}`
+          const parsed = parseSessionJsonl(filePath)
+          const count = parsed.completionCount || 0
+          const prevCount = pollCompletionCounts.get(fileKey) || 0
+
+          if (count > prevCount && pollCompletionCounts.has(fileKey)) {
+            // New completion detected by poll — fire bell if the watcher didn't already
+            ptyManager.fireBell(session.pid)
+            ptyManager.clearThinking(session.pid)
+          }
+          pollCompletionCounts.set(fileKey, count)
+        }
+      } catch { /* ignore read errors */ }
+    }
+  }, POLL_INTERVAL_MS)
+}
+
+function stopBellPolling(): void {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+  pollCompletionCounts.clear()
 }
 
 export function stopSessionMonitor(): void {
@@ -115,4 +167,5 @@ export function stopSessionMonitor(): void {
     clearTimeout(broadcastTimer)
     broadcastTimer = null
   }
+  stopBellPolling()
 }

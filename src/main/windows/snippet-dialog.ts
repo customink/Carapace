@@ -7,7 +7,13 @@ export interface SnippetInput {
   prompt: string
 }
 
-export function showSnippetDialog(): Promise<SnippetInput | null> {
+export interface SnippetEditData {
+  icon: string
+  label: string
+  prompt: string
+}
+
+export function showSnippetDialog(editData?: SnippetEditData): Promise<SnippetInput | null> {
   return new Promise((resolve) => {
     const win = new BrowserWindow({
       width: 420,
@@ -135,14 +141,14 @@ export function showSnippetDialog(): Promise<SnippetInput | null> {
   .ok:disabled { opacity: 0.4; cursor: not-allowed; }
 </style></head>
 <body>
-  <h3>New Quick Snippet</h3>
+  <h3>${editData ? 'Edit Snippet' : 'New Quick Snippet'}</h3>
   <div class="field">
     <label>Name</label>
-    <input id="label" type="text" placeholder="e.g. Add context files" autofocus />
+    <input id="label" type="text" placeholder="e.g. Add context files" value="${editData ? editData.label.replace(/"/g, '&quot;') : ''}" autofocus />
   </div>
   <div class="field">
     <label>Prompt Text</label>
-    <textarea id="prompt" placeholder="Text that will be pasted into the terminal..."></textarea>
+    <textarea id="prompt" placeholder="Text that will be pasted into the terminal...">${editData ? editData.prompt.replace(/</g, '&lt;').replace(/>/g, '&gt;') : ''}</textarea>
   </div>
   <div class="field">
     <label>Icon</label>
@@ -205,6 +211,9 @@ export function showSnippetDialog(): Promise<SnippetInput | null> {
 
     labelEl.addEventListener('input', validate);
     promptEl.addEventListener('input', validate);
+
+    // Pre-fill when editing
+    ${editData ? `setIcon(${JSON.stringify(editData.icon)}); validate();` : ''}
 
     function submit() {
       if (saveBtn.disabled) return;

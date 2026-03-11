@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 
 /** Convert hex (#RRGGBB) to {r,g,b} 0-255 */
@@ -62,6 +62,21 @@ export function createTerminalWindow(options: TerminalWindowOptions): BrowserWin
       query: Object.fromEntries(params)
     })
   }
+
+  // Open links in default browser instead of Electron
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      shell.openExternal(url)
+    }
+    return { action: 'deny' }
+  })
+
+  win.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault()
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      shell.openExternal(url)
+    }
+  })
 
   win.show()
 
