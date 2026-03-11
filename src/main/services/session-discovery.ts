@@ -10,22 +10,26 @@ import { detectActiveProcesses } from './process-detector'
 import { sessionColor } from '@shared/constants/colors'
 import * as ptyManager from './pty-manager'
 
-/**
- * Discover all sessions: active (from running processes + JSONL) and
- * historical (from session-meta files).
- */
-export function discoverSessions(): SessionState[] {
+// ─── Cache layer ───
+let cachedSessions: SessionState[] = []
+let cacheTimestamp = 0
+const CACHE_TTL_MS = 800 // serve cached results within 800ms
+
+/** Async session discovery — does not block the main thread. */
+export async function discoverSessionsAsync(): Promise<SessionState[]> {
+  // Serve from cache if fresh
+  if (Date.now() - cacheTimestamp < CACHE_TTL_MS && cachedSessions.length > 0) {
+    return cachedSessions
+  }
+
   const sessions: SessionState[] = []
   const seenIds = new Set<string>()
 
   // 1. Active sessions — each running Claude PID is a unique session
-  const activeProcesses = detectActiveProcesses()
+  const activeProcesses = await detectActiveProcesses()
   const usedSessionIds = new Set<string>()
 
   for (const proc of activeProcesses) {
-    // Assign a unique ID: use JSONL sessionId if available and not already taken,
-    // otherwise fall back to a PID-based ID (handles new sessions without JSONL
-    // and multiple sessions sharing the same CWD)
     let sessionId: string
     if (proc.sessionId && !usedSessionIds.has(proc.sessionId)) {
       sessionId = proc.sessionId
@@ -35,15 +39,10 @@ export function discoverSessions(): SessionState[] {
     usedSessionIds.add(sessionId)
     seenIds.add(sessionId)
 
-    // Check both PID and PPID against PTY manager — node-pty's pty.pid is the
-    // wrapper process, but the actual claude process is its child (different PID)
     const ptySession = ptyManager.getByPid(proc.pid) || ptyManager.getByPid(proc.ppid)
 
-    // Check if we have a valid transcript for this session
     let hasValidTranscript = false
     if (proc.transcriptFile && fs.existsSync(proc.transcriptFile)) {
-      // For managed sessions, only use the JSONL if it was created after the PTY
-      // (otherwise it's a stale file from a previous session in the same CWD)
       if (ptySession) {
         const mtime = fs.statSync(proc.transcriptFile).mtimeMs
         hasValidTranscript = mtime >= ptySession.createdAt - 5000
@@ -63,7 +62,6 @@ export function discoverSessions(): SessionState[] {
       )
       const contextPercent = computeContextPercent(parsed.metrics.contextLength, parsed.model)
 
-      // Use embedded PTY color if available, otherwise fall back to hash-based color
       const color = ptySession?.color || sessionColor(sessionId)
       sessions.push({
         id: sessionId,
@@ -84,10 +82,10 @@ export function discoverSessions(): SessionState[] {
         pid: proc.pid,
         color,
         title: ptySession?.title || '',
+        label: ptySession?.label || '',
         managed: !!ptySession
       })
     } else {
-      // Process exists but no transcript found (brand new session)
       const newColor = ptySession?.color || sessionColor(sessionId)
       sessions.push({
         id: sessionId,
@@ -108,48 +106,57 @@ export function discoverSessions(): SessionState[] {
         pid: proc.pid,
         color: newColor,
         title: ptySession?.title || '',
+        label: ptySession?.label || '',
         managed: !!ptySession
       })
     }
   }
 
-  // 2. Historical sessions — from session-meta files
+  // 2. Historical sessions — from session-meta files (limit to recent 20 for speed)
   if (fs.existsSync(SESSION_META_DIR)) {
-    const files = fs.readdirSync(SESSION_META_DIR).filter(f => f.endsWith('.json'))
+    try {
+      const files = fs.readdirSync(SESSION_META_DIR)
+        .filter(f => f.endsWith('.json'))
+        .map(f => ({
+          name: f,
+          mtime: fs.statSync(path.join(SESSION_META_DIR, f)).mtimeMs,
+        }))
+        .sort((a, b) => b.mtime - a.mtime)
+        .slice(0, 20)
 
-    for (const file of files) {
-      try {
-        const filePath = path.join(SESSION_META_DIR, file)
-        const raw = fs.readFileSync(filePath, 'utf-8')
-        const meta: SessionMeta = JSON.parse(raw)
+      for (const file of files) {
+        try {
+          const filePath = path.join(SESSION_META_DIR, file.name)
+          const raw = fs.readFileSync(filePath, 'utf-8')
+          const meta: SessionMeta = JSON.parse(raw)
 
-        // Skip if already found as active
-        if (seenIds.has(meta.session_id)) continue
+          if (seenIds.has(meta.session_id)) continue
 
-        const enriched = enrichFromJsonl(meta)
+          const enriched = enrichFromJsonl(meta)
 
-        sessions.push({
-          id: meta.session_id,
-          projectPath: meta.project_path,
-          projectName: extractProjectName(meta.project_path),
-          summary: meta.summary || '',
-          firstPrompt: meta.first_prompt || '',
-          startTime: meta.start_time,
-          durationMinutes: meta.duration_minutes || 0,
-          status: 'historical',
-          model: enriched.model,
-          cost: enriched.cost,
-          contextPercent: enriched.contextPercent,
-          tokens: enriched.tokens,
-          toolCounts: meta.tool_counts || {},
-          userMessageCount: meta.user_message_count || 0,
-          assistantMessageCount: meta.assistant_message_count || 0,
-          color: sessionColor(meta.session_id)
-        })
-      } catch {
-        // Skip malformed files
+          sessions.push({
+            id: meta.session_id,
+            projectPath: meta.project_path,
+            projectName: extractProjectName(meta.project_path),
+            summary: meta.summary || '',
+            firstPrompt: meta.first_prompt || '',
+            startTime: meta.start_time,
+            durationMinutes: meta.duration_minutes || 0,
+            status: 'historical',
+            model: enriched.model,
+            cost: enriched.cost,
+            contextPercent: enriched.contextPercent,
+            tokens: enriched.tokens,
+            toolCounts: meta.tool_counts || {},
+            userMessageCount: meta.user_message_count || 0,
+            assistantMessageCount: meta.assistant_message_count || 0,
+            color: sessionColor(meta.session_id)
+          })
+        } catch {
+          // Skip malformed files
+        }
       }
-    }
+    } catch { /* skip */ }
   }
 
   // Sort: active first, then by start_time descending
@@ -159,7 +166,19 @@ export function discoverSessions(): SessionState[] {
     return new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
   })
 
+  cachedSessions = sessions
+  cacheTimestamp = Date.now()
   return sessions
+}
+
+/** Return the last cached result synchronously (for non-critical reads like context menus) */
+export function getCachedSessions(): SessionState[] {
+  return cachedSessions
+}
+
+/** Invalidate the cache (e.g. after local-only changes like label/color updates) */
+export function invalidateCache(): void {
+  cacheTimestamp = 0
 }
 
 interface EnrichedData {

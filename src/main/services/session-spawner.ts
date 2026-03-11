@@ -5,8 +5,11 @@ import { getOrbWindow } from '../windows/orb'
 import { toggleNotesWindow } from '../windows/notes'
 import { toggleSkillsWindow } from '../windows/skills'
 import { toggleSkillBrowserWindow } from '../windows/skill-browser'
+import { toggleModelSelectorWindow } from '../windows/model-selector'
 import { IPC_CHANNELS } from '../ipc/channels'
 import { recordSession } from './session-history'
+import { formatEffortLevel } from '@shared/utils/format'
+import { SETTINGS_FILE } from '@shared/constants/paths'
 import * as ptyManager from './pty-manager'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -25,6 +28,17 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
   const ptyId = existingPtyId || `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const shellPtyId = shellTab ? `shell-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` : undefined
 
+  // Read effort level from Claude settings
+  let effortLevel = 'default'
+  try {
+    const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'))
+    if (settings.effortLevel) effortLevel = settings.effortLevel
+  } catch { /* use default */ }
+
+  // Build display title: [Title] - [Effort] (model added later when detected)
+  const baseTitle = title || 'Claude Code'
+  const displayTitle = `${baseTitle} - ${formatEffortLevel(effortLevel)}`
+
   // Record in history for "Revive Recent Session"
   recordSession({
     title: title || '',
@@ -38,7 +52,7 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
   // Ensure dock is visible so terminal windows can show
   app.dock?.show()
 
-  const win = createTerminalWindow({ color, ptyId, title, shellTab })
+  const win = createTerminalWindow({ color, ptyId, title: displayTitle, shellTab })
 
   // Wait for the renderer to be ready, then create the PTY(s)
   win.webContents.once('did-finish-load', () => {
@@ -162,6 +176,15 @@ export function registerTerminalIpc(): void {
     const session = ptyManager.getByWindowId(win.id)
     if (!session) return
     toggleSkillBrowserWindow(win, session.color, session.cwd)
+  })
+
+  // Toggle model selector drawer
+  ipcMain.on('terminal:toggle-modelselector', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const session = ptyManager.getByWindowId(win.id)
+    if (!session) return
+    toggleModelSelectorWindow(win, session.color)
   })
 
   // Save clipboard image to temp file and return the path

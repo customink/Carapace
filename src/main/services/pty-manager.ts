@@ -10,6 +10,8 @@ export interface PtySession {
   pid: number
   /** User-given session title from the options dialog */
   title: string
+  /** Custom label for mini-orb (single letter or emoji). Empty = use default initial */
+  label: string
   /** Working directory */
   cwd: string
   /** Visual bell indicator on mini orb — cleared on focus */
@@ -52,9 +54,13 @@ export function clearAttention(pid: number): void {
   }
 }
 
+let cachedClaudePath: string | null = null
+
 function findClaudePath(): string {
+  if (cachedClaudePath) return cachedClaudePath
   try {
-    return execSync('which claude', { encoding: 'utf-8', timeout: 3000 }).trim()
+    cachedClaudePath = execSync('which claude', { encoding: 'utf-8', timeout: 3000 }).trim()
+    return cachedClaudePath
   } catch {
     const paths = [
       `${process.env.HOME}/.local/bin/claude`,
@@ -64,6 +70,7 @@ function findClaudePath(): string {
     for (const p of paths) {
       try {
         execSync(`test -x "${p}"`, { timeout: 1000 })
+        cachedClaudePath = p
         return p
       } catch { /* skip */ }
     }
@@ -117,6 +124,7 @@ export function createPty(options: {
     color: options.color,
     pid: pty.pid,
     title: options.title || '',
+    label: '',
     cwd: options.cwd || process.env.HOME || '/',
     needsAttention: false,
     bellArmed: false,
@@ -323,6 +331,18 @@ export function getActiveCount(): number {
 /** Get all active session window IDs */
 export function getAllWindowIds(): number[] {
   return Array.from(sessions.values()).map(s => s.windowId)
+}
+
+/** Update the color for a session (by PID) */
+export function updateColor(pid: number, color: string): void {
+  const session = getByPid(pid)
+  if (session) session.color = color
+}
+
+/** Update the mini-orb label for a session (by PID) */
+export function updateLabel(pid: number, label: string): void {
+  const session = getByPid(pid)
+  if (session) session.label = label
 }
 
 function updateDockVisibility(): void {

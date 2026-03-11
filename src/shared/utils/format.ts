@@ -22,3 +22,20 @@ export function extractProjectName(projectPath: string): string {
   const parts = projectPath.split('/')
   return parts[parts.length - 1] || projectPath
 }
+
+/** Convert model ID like "claude-opus-4-6" to display name like "Opus 4.6" */
+export function formatModelName(model: string): string {
+  // Match patterns like claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5-20251001
+  const match = model.match(/claude-(\w+)-(\d+)-(\d+)/)
+  if (match) {
+    const name = match[1]!.charAt(0).toUpperCase() + match[1]!.slice(1)
+    return `${name} ${match[2]}.${match[3]}`
+  }
+  return model
+}
+
+/** Capitalize effort level for display */
+export function formatEffortLevel(effort: string): string {
+  if (!effort) return 'Default'
+  return effort.charAt(0).toUpperCase() + effort.slice(1).toLowerCase()
+}

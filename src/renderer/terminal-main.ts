@@ -26,10 +26,15 @@ declare global {
       openFolder: () => void
       toggleSkillBrowser: () => void
       onSkillBrowserClosed: (callback: () => void) => () => void
+      toggleModelSelector: () => void
+      onModelSelectorClosed: (callback: () => void) => () => void
       getSnippets: () => Promise<Snippet[]>
       showSnippetDialog: () => void
       snippetContextMenu: (id: string) => void
       onSnippetsUpdated: (callback: (snippets: Snippet[]) => void) => () => void
+      slackCompose: () => void
+      onTitleUpdated: (callback: (title: string) => void) => () => void
+      onColorUpdated: (callback: (color: string) => void) => () => void
     }
   }
 }
@@ -266,11 +271,13 @@ async function init() {
   const notesBtn = document.getElementById('notes-btn')!
   const skillsBtn = document.getElementById('skills-btn')!
   const skillbrowserBtn = document.getElementById('skillbrowser-btn')!
+  const modelBtn = document.getElementById('model-btn')!
   let notesOpen = false
   let skillsOpen = false
   let skillbrowserOpen = false
+  let modelSelectorOpen = false
 
-  function closeOtherDrawers(except: 'notes' | 'skills' | 'skillbrowser') {
+  function closeOtherDrawers(except: 'notes' | 'skills' | 'skillbrowser' | 'modelselector') {
     if (except !== 'notes' && notesOpen) {
       notesOpen = false
       notesBtn.classList.remove('active')
@@ -285,6 +292,11 @@ async function init() {
       skillbrowserOpen = false
       skillbrowserBtn.classList.remove('active')
       window.carapaceTerminal.toggleSkillBrowser()
+    }
+    if (except !== 'modelselector' && modelSelectorOpen) {
+      modelSelectorOpen = false
+      modelBtn.classList.remove('active')
+      window.carapaceTerminal.toggleModelSelector()
     }
   }
 
@@ -324,6 +336,18 @@ async function init() {
     skillbrowserBtn.classList.remove('active')
   })
 
+  modelBtn.addEventListener('click', () => {
+    if (!modelSelectorOpen) closeOtherDrawers('modelselector')
+    modelSelectorOpen = !modelSelectorOpen
+    modelBtn.classList.toggle('active', modelSelectorOpen)
+    window.carapaceTerminal.toggleModelSelector()
+  })
+
+  window.carapaceTerminal.onModelSelectorClosed(() => {
+    modelSelectorOpen = false
+    modelBtn.classList.remove('active')
+  })
+
   // When a command is selected from any panel, type it into the active terminal
   window.carapaceTerminal.onTypeCommand((command: string) => {
     if (activeTab === 'claude') {
@@ -338,6 +362,35 @@ async function init() {
   // ─── Open folder ───
   document.getElementById('openfolder-btn')!.addEventListener('click', () => {
     window.carapaceTerminal.openFolder()
+  })
+
+  // ─── Title updates from main process ───
+  window.carapaceTerminal.onTitleUpdated((newTitle: string) => {
+    titlebar.textContent = newTitle
+  })
+
+  // ─── Color updates from main process ───
+  window.carapaceTerminal.onColorUpdated((newColor: string) => {
+    color = newColor
+    const newBg = tintedBackground(newColor)
+    document.body.style.background = newBg
+    titlebar.style.backgroundColor = tintedBackground(newColor, 0.15)
+    sidebar.style.backgroundColor = tintedBackground(newColor, 0.1)
+    tabbar.style.backgroundColor = tintedBackground(newColor, 0.12)
+    const newTheme = {
+      background: newBg,
+      cursor: newColor,
+      cursorAccent: '#000000',
+      foreground: '#e2e8f0',
+      selectionBackground: newColor + '40',
+    }
+    claudeTerminal.options.theme = newTheme
+    if (shellTerminal) shellTerminal.options.theme = newTheme
+  })
+
+  // ─── Slack ───
+  document.getElementById('slack-btn')!.addEventListener('click', () => {
+    window.carapaceTerminal.slackCompose()
   })
 
   // ─── Custom snippets ───

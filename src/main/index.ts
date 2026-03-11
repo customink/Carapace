@@ -12,6 +12,11 @@ import { loadSnippets, addSnippet, deleteSnippet } from './services/snippet-stor
 import { showSnippetDialog } from './windows/snippet-dialog'
 import { loadAppSettings, saveAppSettings } from './services/app-settings-store'
 import { showSettingsWindow } from './windows/settings'
+import { showSlackComposeDialog } from './windows/slack-compose'
+import { getLastAssistantResponse } from './services/jsonl-parser'
+import { detectActiveProcesses } from './services/process-detector'
+import { getCachedSessions, invalidateCache, discoverSessionsAsync } from './services/session-discovery'
+import { SESSION_COLORS } from '@shared/constants/colors'
 
 app.whenReady().then(() => {
   registerIpcHandlers()
@@ -82,6 +87,62 @@ app.whenReady().then(() => {
   // Right-click context menu on mini-orb
   ipcMain.on(IPC_CHANNELS.MINI_ORB_CONTEXT_MENU, (_e, pid: number) => {
     if (!pid) return
+
+    const refreshOrb = () => {
+      invalidateCache()
+      discoverSessionsAsync().then(sessions => {
+        const orb = getOrbWindow()
+        if (orb && !orb.isDestroyed()) {
+          orb.webContents.send(IPC_CHANNELS.SESSIONS_UPDATED, sessions)
+        }
+      })
+    }
+
+    const session = ptyManager.getByPid(pid)
+    const currentLabel = session?.label || ''
+
+    // Letters A-Z
+    const letterItems: Electron.MenuItemConstructorOptions[] = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map(ch => ({
+      label: ch,
+      type: 'radio' as const,
+      checked: currentLabel === ch,
+      click: () => { ptyManager.updateLabel(pid, ch); refreshOrb() }
+    }))
+
+    // Popular emojis
+    const emojis = ['🚀', '🔥', '⚡', '💎', '🎯', '🧪', '🔧', '📦', '🐛', '🎨', '🌟', '💡', '🔒', '📝', '🎵', '🏗️', '🧹', '🔍', '⏳', '✅']
+    const emojiItems: Electron.MenuItemConstructorOptions[] = emojis.map(em => ({
+      label: em,
+      type: 'radio' as const,
+      checked: currentLabel === em,
+      click: () => { ptyManager.updateLabel(pid, em); refreshOrb() }
+    }))
+
+    // Color options
+    const colorNames: Record<string, string> = {
+      '#3B6EE8': 'Blue', '#10B981': 'Green', '#F97316': 'Orange',
+      '#E879F9': 'Fuchsia', '#06B6D4': 'Cyan', '#F43F5E': 'Rose',
+      '#A78BFA': 'Violet', '#FBBF24': 'Amber', '#14B8A6': 'Teal',
+      '#FB7185': 'Coral',
+    }
+    const currentColor = session?.color || ''
+    const colorItems: Electron.MenuItemConstructorOptions[] = (SESSION_COLORS as readonly string[]).map((c: string) => ({
+      label: colorNames[c] || c,
+      type: 'radio' as const,
+      checked: currentColor === c,
+      click: () => {
+        ptyManager.updateColor(pid, c)
+        // Also update the terminal window tint
+        if (session) {
+          const termWin = BrowserWindow.fromId(session.windowId)
+          if (termWin && !termWin.isDestroyed()) {
+            termWin.webContents.send('terminal:color-updated', c)
+          }
+        }
+        refreshOrb()
+      }
+    }))
+
     const menu = Menu.buildFromTemplate([
       {
         label: 'Focus Terminal',
@@ -89,13 +150,42 @@ app.whenReady().then(() => {
       },
       { type: 'separator' },
       {
+        label: 'Set Letter',
+        submenu: [
+          {
+            label: 'Default',
+            type: 'radio',
+            checked: currentLabel === '' || (currentLabel.length === 1 && !/[A-Z]/.test(currentLabel) && !emojis.includes(currentLabel)),
+            click: () => { ptyManager.updateLabel(pid, ''); refreshOrb() }
+          },
+          { type: 'separator' },
+          ...letterItems,
+        ]
+      },
+      {
+        label: 'Set Emoji',
+        submenu: [
+          {
+            label: 'None',
+            type: 'radio',
+            checked: !emojis.includes(currentLabel),
+            click: () => { ptyManager.updateLabel(pid, ''); refreshOrb() }
+          },
+          { type: 'separator' },
+          ...emojiItems,
+        ]
+      },
+      {
+        label: 'Change Color',
+        submenu: colorItems,
+      },
+      { type: 'separator' },
+      {
         label: 'Close Session',
         click: () => {
-          const session = ptyManager.getByPid(pid)
           if (session) {
             ptyManager.destroyPty(session.ptyId)
           } else {
-            // External session — kill the process directly
             try {
               process.kill(pid, 'SIGTERM')
             } catch { /* already dead */ }
@@ -263,6 +353,29 @@ app.whenReady().then(() => {
       }
     ])
     menu.popup()
+  })
+
+  // ─── Slack compose ───
+  ipcMain.on(IPC_CHANNELS.SLACK_COMPOSE, async (event) => {
+    // Find the terminal window that sent this
+    const senderWindow = BrowserWindow.fromWebContents(event.sender)
+    if (!senderWindow) return
+
+    // Look up the PTY session for this window
+    const session = ptyManager.getByWindowId(senderWindow.id)
+    let lastResponse = '(No Claude response found in this session)'
+
+    if (session) {
+      // Find transcript file for this session's PID
+      const processes = await detectActiveProcesses()
+      const proc = processes.find(p => p.pid === session.pid || p.ppid === session.pid)
+      if (proc?.transcriptFile) {
+        const response = getLastAssistantResponse(proc.transcriptFile)
+        if (response) lastResponse = response
+      }
+    }
+
+    showSlackComposeDialog(lastResponse)
   })
 
   app.on('activate', () => {

@@ -73,10 +73,36 @@ const terminalApi = {
     return () => { ipcRenderer.removeListener('terminal:skillbrowser-closed', handler) }
   },
 
+  // Model selector
+  toggleModelSelector: () => ipcRenderer.send('terminal:toggle-modelselector'),
+
+  onModelSelectorClosed: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('terminal:modelselector-closed', handler)
+    return () => { ipcRenderer.removeListener('terminal:modelselector-closed', handler) }
+  },
+
   // Snippets
   getSnippets: () => ipcRenderer.invoke('snippets:list'),
   showSnippetDialog: () => ipcRenderer.send('snippet:show-dialog'),
   snippetContextMenu: (id: string) => ipcRenderer.send('snippet:context-menu', id),
+
+  // Slack
+  slackCompose: () => ipcRenderer.send('slack:compose'),
+
+  // Title updates
+  onTitleUpdated: (callback: (title: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, title: string) => callback(title)
+    ipcRenderer.on('terminal:title-updated', handler)
+    return () => { ipcRenderer.removeListener('terminal:title-updated', handler) }
+  },
+
+  // Color updates
+  onColorUpdated: (callback: (color: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, color: string) => callback(color)
+    ipcRenderer.on('terminal:color-updated', handler)
+    return () => { ipcRenderer.removeListener('terminal:color-updated', handler) }
+  },
 
   onSnippetsUpdated: (callback: (snippets: any[]) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, snippets: any[]) => callback(snippets)

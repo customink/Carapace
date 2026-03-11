@@ -17,6 +17,8 @@ export interface SessionUpdate {
 
 export class SessionMonitor extends EventEmitter {
   private watcher: ReturnType<typeof watch> | null = null
+  private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private static DEBOUNCE_MS = 1000
 
   start(): void {
     if (this.watcher) return
@@ -24,17 +26,17 @@ export class SessionMonitor extends EventEmitter {
     this.watcher = watch(`${PROJECTS_DIR}/**/*.jsonl`, {
       ignoreInitial: true,
       awaitWriteFinish: {
-        stabilityThreshold: 200,
-        pollInterval: 100
+        stabilityThreshold: 300,
+        pollInterval: 150
       }
     })
 
     this.watcher.on('change', (filePath: string) => {
-      this.handleFileChange(filePath)
+      this.debouncedChange(filePath)
     })
 
     this.watcher.on('add', (filePath: string) => {
-      this.handleFileChange(filePath)
+      this.debouncedChange(filePath)
     })
   }
 
@@ -43,12 +45,25 @@ export class SessionMonitor extends EventEmitter {
       this.watcher.close()
       this.watcher = null
     }
+    for (const timer of this.debounceTimers.values()) {
+      clearTimeout(timer)
+    }
+    this.debounceTimers.clear()
+  }
+
+  /** Debounce per-file: only process each file once per DEBOUNCE_MS window */
+  private debouncedChange(filePath: string): void {
+    const existing = this.debounceTimers.get(filePath)
+    if (existing) clearTimeout(existing)
+
+    this.debounceTimers.set(filePath, setTimeout(() => {
+      this.debounceTimers.delete(filePath)
+      this.handleFileChange(filePath)
+    }, SessionMonitor.DEBOUNCE_MS))
   }
 
   private handleFileChange(filePath: string): void {
     // Extract session ID from path
-    // Path format: ~/.claude/projects/[encoded-cwd]/[uuid]/subagents/agent-*.jsonl
-    // OR: ~/.claude/projects/[encoded-cwd]/[uuid].jsonl
     const relativePath = path.relative(PROJECTS_DIR, filePath)
     const parts = relativePath.split(path.sep)
 
@@ -58,33 +73,28 @@ export class SessionMonitor extends EventEmitter {
     if (parts.length >= 2) {
       projectEncoded = parts[0] || null
 
-      // Check if second part is a UUID (session directory)
       const possibleUuid = parts[1]
       if (possibleUuid && /^[a-f0-9-]{36}$/.test(possibleUuid)) {
         sessionId = possibleUuid
       } else if (possibleUuid && possibleUuid.endsWith('.jsonl')) {
-        // Direct JSONL file: [uuid].jsonl
         sessionId = possibleUuid.replace('.jsonl', '')
       }
     }
 
     if (!sessionId || !projectEncoded) return
 
-    // Parse the changed file
     const parsed = parseSessionJsonl(filePath)
 
-    // Compute cost from detailed metrics
     const cost = computeDetailedCost(
       parsed.metrics.inputTokens,
       parsed.metrics.outputTokens,
-      0, // cache write approximation handled in cachedTokens
+      0,
       parsed.metrics.cachedTokens,
       parsed.model
     )
 
     const contextPercent = computeContextPercent(parsed.metrics.contextLength, parsed.model)
 
-    // Decode project path from encoded directory name
     const projectPath = '/' + (projectEncoded || '').replace(/-/g, '/')
 
     const update: SessionUpdate = {

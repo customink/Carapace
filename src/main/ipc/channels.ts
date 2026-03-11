@@ -40,5 +40,11 @@ export const IPC_CHANNELS = {
   SNIPPETS_LIST: 'snippets:list',
   SNIPPETS_UPDATED: 'snippets:updated',
   SNIPPET_DIALOG: 'snippet:show-dialog',
-  SNIPPET_CONTEXT_MENU: 'snippet:context-menu'
+  SNIPPET_CONTEXT_MENU: 'snippet:context-menu',
+
+  // Slack
+  SLACK_COMPOSE: 'slack:compose',
+
+  // Terminal title
+  TERMINAL_TITLE_UPDATED: 'terminal:title-updated'
 } as const

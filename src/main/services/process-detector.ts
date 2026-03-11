@@ -1,4 +1,4 @@
-import { execSync } from 'child_process'
+import { exec } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 import { IDE_DIR, PROJECTS_DIR } from '@shared/constants/paths'
@@ -12,14 +12,24 @@ export interface ActiveProcess {
   transcriptFile: string | null
 }
 
+function execAsync(cmd: string, timeout = 5000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    exec(cmd, { encoding: 'utf-8', timeout }, (err, stdout) => {
+      if (err) reject(err)
+      else resolve(stdout)
+    })
+  })
+}
+
 /**
  * Detect running Claude Code processes and resolve their active session transcripts.
+ * Fully async — does not block the main thread.
  */
-export function detectActiveProcesses(): ActiveProcess[] {
+export async function detectActiveProcesses(): Promise<ActiveProcess[]> {
   const processes: ActiveProcess[] = []
 
   try {
-    const output = execSync('ps -eo pid,ppid,command', { encoding: 'utf-8', timeout: 5000 })
+    const output = await execAsync('ps -eo pid,ppid,command', 5000)
     const lines = output.split('\n')
     const pidEntries: Array<{ pid: number; ppid: number }> = []
 
@@ -45,10 +55,7 @@ export function detectActiveProcesses(): ActiveProcess[] {
     const pidList = pidEntries.map(e => e.pid).join(',')
     let lsofOutput = ''
     try {
-      lsofOutput = execSync(`lsof -p ${pidList} 2>/dev/null | grep cwd`, {
-        encoding: 'utf-8',
-        timeout: 10000
-      })
+      lsofOutput = await execAsync(`lsof -p ${pidList} 2>/dev/null | grep cwd`, 10000)
     } catch {
       return processes
     }

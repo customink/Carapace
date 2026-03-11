@@ -41,10 +41,14 @@ function parseJsonlLine(line: string): TranscriptLine | null {
   }
 }
 
+// ─── Parse cache: avoid re-parsing unchanged files ───
+const parseCache = new Map<string, { mtime: number; size: number; result: ParsedSession }>()
+
 /**
  * Parse a session JSONL file following ccstatusline's getTokenMetrics() pattern.
  * Sums usage across all assistant messages.
  * Context length from the most recent main-chain (non-sidechain) assistant message.
+ * Results are cached and only re-parsed when the file changes.
  */
 export function parseSessionJsonl(transcriptPath: string): ParsedSession {
   const empty: ParsedSession = {
@@ -55,6 +59,15 @@ export function parseSessionJsonl(transcriptPath: string): ParsedSession {
   }
 
   if (!fs.existsSync(transcriptPath)) return empty
+
+  // Check cache by mtime + size
+  try {
+    const stat = fs.statSync(transcriptPath)
+    const cached = parseCache.get(transcriptPath)
+    if (cached && cached.mtime === stat.mtimeMs && cached.size === stat.size) {
+      return cached.result
+    }
+  } catch { /* continue to parse */ }
 
   let content: string
   try {
@@ -135,7 +148,7 @@ export function parseSessionJsonl(transcriptPath: string): ParsedSession {
     durationMinutes = Math.round((new Date(lastActivity).getTime() - new Date(startTime).getTime()) / 60000)
   }
 
-  return {
+  const result: ParsedSession = {
     metrics: {
       inputTokens,
       outputTokens,
@@ -150,6 +163,57 @@ export function parseSessionJsonl(transcriptPath: string): ParsedSession {
     startTime,
     durationMinutes
   }
+
+  // Store in cache
+  try {
+    const stat = fs.statSync(transcriptPath)
+    parseCache.set(transcriptPath, { mtime: stat.mtimeMs, size: stat.size, result })
+    // Evict old entries to prevent memory leak
+    if (parseCache.size > 50) {
+      const firstKey = parseCache.keys().next().value
+      if (firstKey) parseCache.delete(firstKey)
+    }
+  } catch { /* ok */ }
+
+  return result
+}
+
+/**
+ * Extract the last assistant response text from a JSONL transcript.
+ */
+export function getLastAssistantResponse(transcriptPath: string): string | null {
+  if (!fs.existsSync(transcriptPath)) return null
+
+  let content: string
+  try {
+    content = fs.readFileSync(transcriptPath, 'utf-8')
+  } catch {
+    return null
+  }
+
+  const lines = content.split('\n').filter(l => l.trim())
+  let lastResponse: string | null = null
+
+  for (const line of lines) {
+    const data = parseJsonlLine(line)
+    if (!data) continue
+    if (data.isSidechain) continue
+    if (data.message?.role !== 'assistant') continue
+
+    const msgContent = data.message.content
+    if (typeof msgContent === 'string' && msgContent.trim()) {
+      lastResponse = msgContent
+    } else if (Array.isArray(msgContent)) {
+      const textParts = msgContent
+        .filter((b: { type?: string; text?: string }) => b.type === 'text' && b.text)
+        .map((b: { text: string }) => b.text)
+      if (textParts.length > 0) {
+        lastResponse = textParts.join('\n')
+      }
+    }
+  }
+
+  return lastResponse
 }
 
 /**

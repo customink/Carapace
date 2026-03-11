@@ -80,6 +80,7 @@ export function FloatingOrb() {
       // Label positioned along the same radial line, beyond the mini-orb edge
       const labelDist = ORBIT_RADIUS + MINI_ORB_SIZE / 2 + LABEL_OFFSET
       const name = session.title || session.firstPrompt || 'Claude Code'
+      const displayLabel = session.label || (name[0] || '?').toUpperCase()
       return {
         id: session.id,
         color: darkenColor(session.color),
@@ -87,7 +88,7 @@ export function FloatingOrb() {
         pid: session.pid,
         needsAttention: session.pid ? attentionPids.has(session.pid) : false,
         contextPercent: Math.round(session.contextPercent),
-        initial: (name[0] || '?').toUpperCase(),
+        initial: displayLabel,
         x: CENTER_X + cos * ORBIT_RADIUS - MINI_ORB_SIZE / 2,
         y: CENTER_Y + sin * ORBIT_RADIUS - MINI_ORB_SIZE / 2,
         labelX: CENTER_X + cos * labelDist,

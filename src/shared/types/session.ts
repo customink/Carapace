@@ -59,6 +59,8 @@ export interface SessionState {
   color: string
   /** User-given session title from options dialog */
   title?: string
+  /** Custom label for mini-orb (single letter or emoji) */
+  label?: string
   /** true when session was spawned by Carapace (has a PTY in pty-manager) */
   managed?: boolean
 }

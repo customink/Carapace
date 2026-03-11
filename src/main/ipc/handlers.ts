@@ -1,16 +1,18 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { IPC_CHANNELS } from './channels'
-import { discoverSessions } from '../services/session-discovery'
+import { discoverSessionsAsync, getCachedSessions } from '../services/session-discovery'
 import { readCredentials, readSettings } from '../services/settings-reader'
 import { fetchUsageData } from '../services/usage-fetcher'
 import { SessionMonitor } from '../services/session-monitor'
+import { formatModelName } from '@shared/utils/format'
+import * as ptyManager from '../services/pty-manager'
 import type { SessionUpdate } from '../services/session-monitor'
 
 let monitor: SessionMonitor | null = null
 
 export function registerIpcHandlers(): void {
-  ipcMain.handle(IPC_CHANNELS.SESSIONS_LIST, () => {
-    return discoverSessions()
+  ipcMain.handle(IPC_CHANNELS.SESSIONS_LIST, async () => {
+    return await discoverSessionsAsync()
   })
 
   ipcMain.handle(IPC_CHANNELS.CREDENTIALS_GET, () => {
@@ -26,17 +28,60 @@ export function registerIpcHandlers(): void {
   })
 }
 
+// ─── Throttled broadcast ───
+let broadcastTimer: ReturnType<typeof setTimeout> | null = null
+let broadcastPending = false
+const BROADCAST_THROTTLE_MS = 1500
+
+function scheduleBroadcast(): void {
+  broadcastPending = true
+  if (broadcastTimer) return // already scheduled
+  broadcastTimer = setTimeout(async () => {
+    broadcastTimer = null
+    if (!broadcastPending) return
+    broadcastPending = false
+
+    const allSessions = await discoverSessionsAsync()
+    const windows = BrowserWindow.getAllWindows()
+    for (const win of windows) {
+      if (!win.isDestroyed()) {
+        win.webContents.send(IPC_CHANNELS.SESSIONS_UPDATED, allSessions)
+      }
+    }
+
+    // Update terminal window titles with model info when detected
+    for (const session of allSessions) {
+      if (session.status !== 'active' || !session.managed) continue
+      if (!session.model) continue
+
+      const modelDisplay = formatModelName(session.model)
+      const ptySess = session.pid ? ptyManager.getByPid(session.pid) : undefined
+      if (!ptySess) continue
+
+      const termWin = BrowserWindow.fromId(ptySess.windowId)
+      if (!termWin || termWin.isDestroyed()) continue
+
+      const currentTitle = termWin.getTitle()
+      if (currentTitle.includes(modelDisplay)) continue
+
+      const dashParts = currentTitle.split(' - ')
+      if (dashParts.length >= 2) {
+        dashParts.splice(dashParts.length - 1, 0, modelDisplay)
+        const newTitle = dashParts.join(' - ')
+        termWin.setTitle(newTitle)
+        termWin.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_UPDATED, newTitle)
+      }
+    }
+  }, BROADCAST_THROTTLE_MS)
+}
+
 export function startSessionMonitor(): void {
   if (monitor) return
 
   monitor = new SessionMonitor()
 
-  monitor.on('session:updated', (update: SessionUpdate) => {
-    // Broadcast to all renderer windows
-    const windows = BrowserWindow.getAllWindows()
-    for (const win of windows) {
-      win.webContents.send(IPC_CHANNELS.SESSIONS_UPDATED, discoverSessions())
-    }
+  monitor.on('session:updated', (_update: SessionUpdate) => {
+    scheduleBroadcast()
   })
 
   monitor.start()
@@ -46,5 +91,9 @@ export function stopSessionMonitor(): void {
   if (monitor) {
     monitor.stop()
     monitor = null
+  }
+  if (broadcastTimer) {
+    clearTimeout(broadcastTimer)
+    broadcastTimer = null
   }
 }
