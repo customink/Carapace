@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claude Code</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0d0d0d;
+    }
+    body {
+      display: flex;
+      flex-direction: column;
+    }
+    #titlebar {
+      -webkit-app-region: drag;
+      height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+      font-size: 13px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.85);
+      user-select: none;
+      -webkit-user-select: none;
+      flex-shrink: 0;
+    }
+    #tabbar {
+      display: none;
+      height: 32px;
+      flex-shrink: 0;
+      align-items: stretch;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(255, 255, 255, 0.7);
+      user-select: none;
+      -webkit-user-select: none;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    #tabbar.visible {
+      display: flex;
+    }
+    .tab {
+      -webkit-app-region: no-drag;
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s ease;
+      gap: 6px;
+    }
+    .tab:hover {
+      color: rgba(255, 255, 255, 0.9);
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .tab.active {
+      color: rgba(255, 255, 255, 0.95);
+      border-bottom-color: currentColor;
+    }
+    .tab-icon {
+      font-size: 11px;
+      opacity: 0.7;
+    }
+
+    /* ─── Main content area ─── */
+    #main-area {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ─── Sidebar ─── */
+    #sidebar {
+      width: 36px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 10px;
+      padding-bottom: 10px;
+      gap: 6px;
+      border-right: 1px solid rgba(255, 255, 255, 0.06);
+      overflow-y: auto;
+    }
+    #sidebar::-webkit-scrollbar { width: 0; }
+    #custom-snippets {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .snippet-separator {
+      width: 20px;
+      height: 1px;
+      background: rgba(255, 255, 255, 0.08);
+      flex-shrink: 0;
+    }
+    .sidebar-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.45);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      transition: all 0.15s ease;
+      padding: 0;
+    }
+    .sidebar-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.8);
+    }
+    .sidebar-btn.active {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    /* ─── Terminal container ─── */
+    #terminal-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    .terminal-pane {
+      position: absolute;
+      inset: 0;
+      display: none;
+    }
+    .terminal-pane.active {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div id="titlebar"></div>
+  <div id="tabbar">
+    <div id="tab-claude" class="tab active" data-tab="claude">
+      <span class="tab-icon">&#10022;</span>
+      <span>Claude</span>
+    </div>
+    <div id="tab-shell" class="tab" data-tab="shell">
+      <span class="tab-icon">&#10095;</span>
+      <span>Shell</span>
+    </div>
+  </div>
+  <div id="main-area">
+    <div id="sidebar">
+      <button id="notes-btn" class="sidebar-btn" title="Notes">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M3 2.5h10a.5.5 0 0 1 .5.5v10a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5z" stroke="currentColor" stroke-width="1.2"/>
+          <path d="M5 5.5h6M5 8h6M5 10.5h3.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button id="skills-btn" class="sidebar-btn" title="Slash Commands">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M10 2.5L6 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button id="skillbrowser-btn" class="sidebar-btn" title="Skills">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M8 1.5l1.8 3.7 4 .6-2.9 2.8.7 4L8 10.8 4.4 12.6l.7-4L2.2 5.8l4-.6L8 1.5z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button id="openfolder-btn" class="sidebar-btn" title="Open Folder">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M2 4.5v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-6a1 1 0 0 0-1-1H8L6.5 3.5H3a1 1 0 0 0-1 1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div id="custom-snippets"></div>
+      <button id="add-snippet-btn" class="sidebar-btn" title="Add Quick Snippet">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+    <div id="terminal-container">
+      <div id="terminal" class="terminal-pane active"></div>
+      <div id="shell-terminal" class="terminal-pane"></div>
+    </div>
+  </div>
+  <script type="module" src="./terminal-main.ts"></script>
+</body>
+</html>
