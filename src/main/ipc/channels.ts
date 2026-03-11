@@ -8,10 +8,6 @@ export const IPC_CHANNELS = {
   CREDENTIALS_GET: 'credentials:get',
   SETTINGS_GET: 'settings:get',
 
-  // Window control
-  PANEL_TOGGLE: 'panel:toggle',
-  PANEL_HIDE: 'panel:hide',
-
   // Usage data
   USAGE_GET: 'usage:get',
   USAGE_UPDATED: 'usage:updated',

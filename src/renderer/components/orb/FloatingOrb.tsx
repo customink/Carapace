@@ -139,7 +139,7 @@ export function FloatingOrb() {
       document.removeEventListener('mouseup', onMouseUp)
 
       if (!didDrag.current) {
-        window.carapace?.togglePanel()
+        window.carapace?.createSession()
       }
     }
 

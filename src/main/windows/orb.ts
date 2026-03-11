@@ -1,6 +1,5 @@
 import { BrowserWindow, screen, ipcMain } from 'electron'
 import { join } from 'path'
-import { getPanelWindow } from './panel'
 
 let orbWindow: BrowserWindow | null = null
 let dragStartBounds: Electron.Rectangle | null = null
@@ -16,19 +15,6 @@ const WINDOW_HEIGHT = 150
 // Main orb is centered horizontally, shifted up vertically
 const MAIN_ORB_CENTER_X = 105
 const MAIN_ORB_CENTER_Y = 75
-
-export function positionPanelUnderOrb(): void {
-  const panel = getPanelWindow()
-  if (!orbWindow || !panel) return
-  const ob = orbWindow.getBounds()
-  const pb = panel.getBounds()
-  // Center panel under the main orb (not the full window)
-  const orbScreenCenterX = ob.x + MAIN_ORB_CENTER_X
-  panel.setPosition(
-    orbScreenCenterX - Math.round(pb.width / 2),
-    ob.y + ob.height + 4
-  )
-}
 
 export function createOrbWindow(): BrowserWindow {
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize
@@ -135,10 +121,6 @@ export function createOrbWindow(): BrowserWindow {
     const newX = dragStartBounds.x + (screenX - dragStartCursor.x)
     const newY = dragStartBounds.y + (screenY - dragStartCursor.y)
     orbWindow.setBounds({ x: newX, y: newY, width: WINDOW_WIDTH, height: WINDOW_HEIGHT })
-    const panel = getPanelWindow()
-    if (panel && panel.isVisible()) {
-      positionPanelUnderOrb()
-    }
   })
 
   ipcMain.on('orb:drag-end', () => {

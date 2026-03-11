@@ -1,8 +1,7 @@
 import { app, ipcMain, Menu, BrowserWindow, screen } from 'electron'
 import { registerIpcHandlers, startSessionMonitor, stopSessionMonitor } from './ipc/handlers'
 import { IPC_CHANNELS } from './ipc/channels'
-import { createOrbWindow, getOrbWindow, positionPanelUnderOrb } from './windows/orb'
-import { createPanelWindow, getPanelWindow, hidePanel } from './windows/panel'
+import { createOrbWindow, getOrbWindow } from './windows/orb'
 import { spawnClaudeSession, registerTerminalIpc } from './services/session-spawner'
 import { focusSessionTerminal } from './services/terminal-focus'
 import * as ptyManager from './services/pty-manager'
@@ -37,38 +36,6 @@ app.whenReady().then(() => {
   })
 
   createOrbWindow()
-  createPanelWindow()
-
-  // Panel blur-to-hide with grace period for orb clicks
-  const panel = getPanelWindow()
-  if (panel) {
-    panel.on('blur', () => {
-      setTimeout(() => {
-        const orb = getOrbWindow()
-        if (orb && orb.isFocused()) return
-        const p = getPanelWindow()
-        if (p && p.isVisible() && !p.isFocused()) {
-          p.hide()
-        }
-      }, 150)
-    })
-  }
-
-  // Toggle panel below orb
-  ipcMain.on(IPC_CHANNELS.PANEL_TOGGLE, () => {
-    const p = getPanelWindow()
-    if (!p) return
-    if (p.isVisible()) {
-      p.hide()
-    } else {
-      positionPanelUnderOrb()
-      p.show()
-    }
-  })
-
-  ipcMain.on(IPC_CHANNELS.PANEL_HIDE, () => {
-    hidePanel()
-  })
 
   // Session creation
   ipcMain.on(IPC_CHANNELS.SESSION_CREATE, () => {
@@ -282,16 +249,6 @@ app.whenReady().then(() => {
         }
       },
       {
-        label: 'Show Sessions',
-        click: () => {
-          const p = getPanelWindow()
-          if (p) {
-            positionPanelUnderOrb()
-            p.show()
-          }
-        }
-      },
-      {
         label: 'Settings...',
         click: async () => {
           const result = await showSettingsWindow()
@@ -380,7 +337,6 @@ app.whenReady().then(() => {
 
   app.on('activate', () => {
     if (!getOrbWindow()) createOrbWindow()
-    if (!getPanelWindow()) createPanelWindow()
   })
 })
 

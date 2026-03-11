@@ -7,9 +7,6 @@ const api = {
   getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET),
   getUsage: () => ipcRenderer.invoke(IPC_CHANNELS.USAGE_GET),
 
-  togglePanel: () => ipcRenderer.send(IPC_CHANNELS.PANEL_TOGGLE),
-  hidePanel: () => ipcRenderer.send(IPC_CHANNELS.PANEL_HIDE),
-
   createSession: () => ipcRenderer.send(IPC_CHANNELS.SESSION_CREATE),
   createSessionBypass: () => ipcRenderer.send(IPC_CHANNELS.SESSION_CREATE_BYPASS),
   showContextMenu: () => ipcRenderer.send(IPC_CHANNELS.ORB_CONTEXT_MENU),
