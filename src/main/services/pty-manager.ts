@@ -18,8 +18,6 @@ export interface PtySession {
   needsAttention: boolean
   /** Bell arms only after user sends input to the PTY */
   bellArmed: boolean
-  /** Output bytes received since bell was armed (since last user input) */
-  outputSinceArmed: number
   /** Timestamp when PTY was created — bell is suppressed during startup */
   createdAt: number
   /** True when Claude is actively generating a response */
@@ -40,11 +38,8 @@ export interface ShellPtySession {
 const shellSessions = new Map<string, ShellPtySession>()
 
 const IDLE_THRESHOLD_MS = 4000 // For thinking spinner fallback
-const MIN_OUTPUT_AFTER_INPUT = 200 // Minimum output after user input to consider Claude "responded"
 const STARTUP_GRACE_MS = 30000 // Ignore bell arming during first 30s (shell init + claude startup + trust prompt)
 const SIGNIFICANT_CHUNK_SIZE = 80 // Chunks smaller than this are likely status bar updates (ccstatusline)
-// Claude Code prints ✻ (U+273B) when it finishes processing, e.g. "✻ Churned for 37s"
-const COMPLETION_MARKER = '\u273b'
 
 let onAttentionCallback: ((pid: number) => void) | null = null
 let onThinkingChangeCallback: ((pid: number, isThinking: boolean) => void) | null = null
@@ -62,6 +57,40 @@ export function clearAttention(pid: number): void {
   if (session) {
     session.needsAttention = false
   }
+}
+
+/**
+ * Fire the bell for a session if conditions are met:
+ * - Bell must be armed (user sent input since last bell)
+ * - Terminal window must not be focused
+ * Called from handlers.ts when JSONL completion count increments.
+ */
+export function fireBell(pid: number): void {
+  const session = getByPid(pid)
+  if (!session || !session.bellArmed) return
+
+  const w = BrowserWindow.fromId(session.windowId)
+  if (w && !w.isDestroyed() && !w.isFocused()) {
+    session.needsAttention = true
+    onAttentionCallback?.(session.pid)
+  }
+  session.bellArmed = false
+}
+
+/**
+ * Clear thinking state for a session.
+ * Called from handlers.ts when JSONL completion is detected.
+ */
+export function clearThinking(pid: number): void {
+  const session = getByPid(pid)
+  if (!session || !session.isThinking) return
+
+  if (session.thinkingTimer) {
+    clearTimeout(session.thinkingTimer)
+    session.thinkingTimer = null
+  }
+  session.isThinking = false
+  onThinkingChangeCallback?.(session.pid, false)
 }
 
 let cachedClaudePath: string | null = null
@@ -138,7 +167,6 @@ export function createPty(options: {
     cwd: options.cwd || process.env.HOME || '/',
     needsAttention: false,
     bellArmed: false,
-    outputSinceArmed: 0,
     createdAt: Date.now(),
     isThinking: false,
     thinkingTimer: null,
@@ -162,40 +190,9 @@ export function createPty(options: {
       win.webContents.send('terminal:data', data)
     }
 
-    // Track output volume when bell is armed
-    if (session.bellArmed) {
-      session.outputSinceArmed += data.length
-    }
-
-    // Detect Claude completion marker: ✻ (U+273B)
-    // Claude Code prints "✻ Churned for Xs" when it finishes processing a prompt.
-    // This is the definitive signal that Claude is done — much more reliable than
-    // idle-timer heuristics which can false-trigger during pauses.
-    if (data.includes(COMPLETION_MARKER)) {
-      // Fire bell if armed and Claude produced real output
-      if (session.bellArmed && session.outputSinceArmed >= MIN_OUTPUT_AFTER_INPUT) {
-        const w = BrowserWindow.fromId(options.windowId)
-        if (w && !w.isDestroyed() && !w.isFocused()) {
-          session.needsAttention = true
-          onAttentionCallback?.(session.pid)
-        }
-        session.bellArmed = false
-      }
-
-      // Clear thinking state immediately
-      if (session.isThinking) {
-        if (session.thinkingTimer) {
-          clearTimeout(session.thinkingTimer)
-          session.thinkingTimer = null
-        }
-        session.isThinking = false
-        onThinkingChangeCallback?.(session.pid, false)
-      }
-      return
-    }
-
     // Thinking spinner fallback: clear after idle period (no significant output)
-    // This handles cases where the ✻ marker might not appear (e.g. interruptions)
+    // Primary clearing is via JSONL completion detection in handlers.ts,
+    // but this catches edge cases (interrupts, errors, missing JSONL).
     if (session.isThinking && data.length >= SIGNIFICANT_CHUNK_SIZE) {
       if (session.thinkingTimer) clearTimeout(session.thinkingTimer)
       session.thinkingTimer = setTimeout(() => {
@@ -235,7 +232,6 @@ export function writeToPty(ptyId: string, data: string): void {
   const isEnter = data.includes('\r') && !data.includes('\x1b')
   if (isEnter && Date.now() - session.createdAt > STARTUP_GRACE_MS) {
     session.bellArmed = true
-    session.outputSinceArmed = 0
     session.needsAttention = false // clear any stale attention
   }
 

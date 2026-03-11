@@ -28,6 +28,8 @@ export interface ParsedSession {
   model: string
   lastActivity: string | null
   stopReason: string | null
+  /** Number of assistant messages with stop_reason "end_turn" — each increment = one completed response */
+  completionCount: number
   firstPrompt: string | null
   startTime: string | null
   durationMinutes: number
@@ -55,7 +57,8 @@ export function parseSessionJsonl(transcriptPath: string): ParsedSession {
     metrics: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0 },
     model: 'claude-sonnet-4-6',
     lastActivity: null,
-    stopReason: null
+    stopReason: null,
+    completionCount: 0
   }
 
   if (!fs.existsSync(transcriptPath)) return empty
@@ -86,6 +89,7 @@ export function parseSessionJsonl(transcriptPath: string): ParsedSession {
   let lastActivity: string | null = null
   let stopReason: string | null = null
 
+  let completionCount = 0
   let mostRecentMainChainTimestamp: Date | null = null
   let firstPrompt: string | null = null
   let startTime: string | null = null
@@ -135,9 +139,12 @@ export function parseSessionJsonl(transcriptPath: string): ParsedSession {
         }
       }
 
-      // Track stop reason
+      // Track stop reason and count completions
       if (data.message.stop_reason) {
         stopReason = data.message.stop_reason
+        if (data.message.stop_reason === 'end_turn') {
+          completionCount++
+        }
       }
     }
   }
@@ -159,6 +166,7 @@ export function parseSessionJsonl(transcriptPath: string): ParsedSession {
     model,
     lastActivity,
     stopReason,
+    completionCount,
     firstPrompt,
     startTime,
     durationMinutes

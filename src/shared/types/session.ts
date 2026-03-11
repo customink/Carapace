@@ -65,6 +65,8 @@ export interface SessionState {
   managed?: boolean
   /** true when Claude is actively generating a response */
   isThinking?: boolean
+  /** Number of completed Claude responses (end_turn count from JSONL) */
+  completionCount?: number
 }
 
 export interface CredentialsInfo {

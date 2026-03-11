@@ -7,6 +7,7 @@ import { SessionMonitor } from '../services/session-monitor'
 import { formatModelName } from '@shared/utils/format'
 import * as ptyManager from '../services/pty-manager'
 import type { SessionUpdate } from '../services/session-monitor'
+import type { SessionState } from '@shared/types/session'
 
 let monitor: SessionMonitor | null = null
 
@@ -33,6 +34,9 @@ let broadcastTimer: ReturnType<typeof setTimeout> | null = null
 let broadcastPending = false
 const BROADCAST_THROTTLE_MS = 1500
 
+// Track completion counts per session to detect new completions
+const previousCompletionCounts = new Map<string, number>()
+
 function scheduleBroadcast(): void {
   broadcastPending = true
   if (broadcastTimer) return // already scheduled
@@ -47,6 +51,21 @@ function scheduleBroadcast(): void {
       if (!win.isDestroyed()) {
         win.webContents.send(IPC_CHANNELS.SESSIONS_UPDATED, allSessions)
       }
+    }
+
+    // Detect new completions and fire bell / clear thinking
+    for (const session of allSessions) {
+      if (session.status !== 'active' || !session.managed || !session.pid) continue
+
+      const count = session.completionCount || 0
+      const prevCount = previousCompletionCounts.get(session.id) || 0
+
+      if (count > prevCount && prevCount > 0) {
+        // New completion detected — fire bell and clear thinking
+        ptyManager.fireBell(session.pid)
+        ptyManager.clearThinking(session.pid)
+      }
+      previousCompletionCounts.set(session.id, count)
     }
 
     // Update terminal window titles with model info when detected

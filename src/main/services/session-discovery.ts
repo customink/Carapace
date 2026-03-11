@@ -84,7 +84,8 @@ export async function discoverSessionsAsync(): Promise<SessionState[]> {
         title: ptySession?.title || '',
         label: ptySession?.label || '',
         managed: !!ptySession,
-        isThinking: ptySession?.isThinking || false
+        isThinking: ptySession?.isThinking || false,
+        completionCount: parsed.completionCount
       })
     } else {
       const newColor = ptySession?.color || sessionColor(sessionId)
@@ -109,7 +110,8 @@ export async function discoverSessionsAsync(): Promise<SessionState[]> {
         title: ptySession?.title || '',
         label: ptySession?.label || '',
         managed: !!ptySession,
-        isThinking: ptySession?.isThinking || false
+        isThinking: ptySession?.isThinking || false,
+        completionCount: 0
       })
     }
   }
