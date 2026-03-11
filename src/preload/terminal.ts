@@ -87,6 +87,10 @@ const terminalApi = {
   showSnippetDialog: () => ipcRenderer.send('snippet:show-dialog'),
   snippetContextMenu: (id: string) => ipcRenderer.send('snippet:context-menu', id),
 
+  // GitHub
+  getGitHubUrl: () => ipcRenderer.invoke('terminal:github-url'),
+  openGitHub: () => ipcRenderer.send('terminal:open-github'),
+
   // Slack
   slackCompose: () => ipcRenderer.send('slack:compose'),
 

@@ -23,6 +23,9 @@ export interface PtySession {
   idleTimer: ReturnType<typeof setTimeout> | null
   /** Timestamp when PTY was created — bell is suppressed during startup */
   createdAt: number
+  /** True when Claude is actively generating a response */
+  isThinking: boolean
+  thinkingTimer: ReturnType<typeof setTimeout> | null
 }
 
 const sessions = new Map<string, PtySession>()
@@ -40,11 +43,17 @@ const shellSessions = new Map<string, ShellPtySession>()
 const IDLE_THRESHOLD_MS = 4000
 const MIN_OUTPUT_AFTER_INPUT = 200 // Minimum output after user input to consider Claude "responded"
 const STARTUP_GRACE_MS = 30000 // Ignore bell arming during first 30s (shell init + claude startup + trust prompt)
+const SIGNIFICANT_CHUNK_SIZE = 80 // Chunks smaller than this are likely status bar updates (ccstatusline) and won't reset the idle timer
 
 let onAttentionCallback: ((pid: number) => void) | null = null
+let onThinkingChangeCallback: ((pid: number, isThinking: boolean) => void) | null = null
 
 export function onAttention(cb: (pid: number) => void): void {
   onAttentionCallback = cb
+}
+
+export function onThinkingChange(cb: (pid: number, isThinking: boolean) => void): void {
+  onThinkingChangeCallback = cb
 }
 
 export function clearAttention(pid: number): void {
@@ -131,6 +140,8 @@ export function createPty(options: {
     outputSinceArmed: 0,
     idleTimer: null,
     createdAt: Date.now(),
+    isThinking: false,
+    thinkingTimer: null,
   }
 
   sessions.set(options.ptyId, session)
@@ -160,21 +171,38 @@ export function createPty(options: {
 
     session.outputSinceArmed += data.length
 
-    // Reset idle timer on every output chunk
-    if (session.idleTimer) {
-      clearTimeout(session.idleTimer)
+    // Only reset the idle timer for significant output chunks.
+    // Small chunks (< ~80 bytes) are typically status bar updates from
+    // ccstatusline or similar tools — they should NOT prevent the bell
+    // from firing after Claude finishes a long response.
+    if (data.length >= SIGNIFICANT_CHUNK_SIZE) {
+      if (session.idleTimer) {
+        clearTimeout(session.idleTimer)
+      }
+
+      session.idleTimer = setTimeout(() => {
+        // Only ring if Claude produced substantial output after user input
+        if (session.outputSinceArmed < MIN_OUTPUT_AFTER_INPUT) return
+        const w = BrowserWindow.fromId(options.windowId)
+        if (w && !w.isDestroyed() && w.isFocused()) return
+
+        session.needsAttention = true
+        session.bellArmed = false // disarm — won't ring again until new user input
+        onAttentionCallback?.(session.pid)
+      }, IDLE_THRESHOLD_MS)
     }
 
-    session.idleTimer = setTimeout(() => {
-      // Only ring if Claude produced substantial output after user input
-      if (session.outputSinceArmed < MIN_OUTPUT_AFTER_INPUT) return
-      const w = BrowserWindow.fromId(options.windowId)
-      if (w && !w.isDestroyed() && w.isFocused()) return
-
-      session.needsAttention = true
-      session.bellArmed = false // disarm — won't ring again until new user input
-      onAttentionCallback?.(session.pid)
-    }, IDLE_THRESHOLD_MS)
+    // Track thinking state — independent of bell, works even during startup
+    if (data.length >= SIGNIFICANT_CHUNK_SIZE) {
+      if (session.thinkingTimer) clearTimeout(session.thinkingTimer)
+      session.thinkingTimer = setTimeout(() => {
+        session.thinkingTimer = null
+        if (session.isThinking) {
+          session.isThinking = false
+          onThinkingChangeCallback?.(session.pid, false)
+        }
+      }, IDLE_THRESHOLD_MS)
+    }
   })
 
   // When PTY exits, notify renderer and close window
@@ -201,12 +229,17 @@ export function writeToPty(ptyId: string, data: string): void {
   // Only arm the bell when the user submits a real command (Enter key).
   // Reject: startup period, escape sequence responses (xterm query replies),
   // Shift+Enter (\x1b[13;2u), and bare \r with no visible content.
-  if (data.includes('\r')
-    && Date.now() - session.createdAt > STARTUP_GRACE_MS
-    && !data.includes('\x1b')) {
+  const isEnter = data.includes('\r') && !data.includes('\x1b')
+  if (isEnter && Date.now() - session.createdAt > STARTUP_GRACE_MS) {
     session.bellArmed = true
     session.outputSinceArmed = 0
     session.needsAttention = false // clear any stale attention
+  }
+
+  // Mark as thinking when user sends Enter (works even during startup)
+  if (isEnter && !session.isThinking) {
+    session.isThinking = true
+    onThinkingChangeCallback?.(session.pid, true)
   }
 
   session.pty.write(data)

@@ -64,13 +64,11 @@ function scheduleBroadcast(): void {
       const currentTitle = termWin.getTitle()
       if (currentTitle.includes(modelDisplay)) continue
 
-      const dashParts = currentTitle.split(' - ')
-      if (dashParts.length >= 2) {
-        dashParts.splice(dashParts.length - 1, 0, modelDisplay)
-        const newTitle = dashParts.join(' - ')
-        termWin.setTitle(newTitle)
-        termWin.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_UPDATED, newTitle)
-      }
+      // Append model: "Title" → "Title - Opus 4.6"
+      const baseTitle = ptySess.title || 'Claude Code'
+      const newTitle = `${baseTitle} - ${modelDisplay}`
+      termWin.setTitle(newTitle)
+      termWin.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_UPDATED, newTitle)
     }
   }, BROADCAST_THROTTLE_MS)
 }

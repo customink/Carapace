@@ -9,7 +9,8 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 - **Floating Orb** — Always-on-top widget showing active session count with orbiting mini-orbs per session
 - **Session Management** — Spawn, focus, arrange, and revive Claude Code sessions
 - **Terminal Windows** — Full xterm.js terminals with colored theming per session
-- **Dynamic Titles** — Window titles show session name, model, and effort level
+- **Dynamic Titles** — Window titles show session name and active model
+- **Thinking Indicator** — Spinning indicator on mini-orbs when Claude is actively responding
 - **Sidebar Tools** — Notes, slash commands, skill browser, model selector, folder picker, Slack sharing, and custom quick snippets
 - **Mini-Orb Customization** — Right-click mini-orbs to set custom letters, emojis, or colors
 - **Model Selector** — Drawer panel to switch Claude models by pasting `/model` commands
@@ -21,10 +22,17 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 ## Quick Start
 
 ```bash
+./install.sh         # check prerequisites, install deps, build
+npx electron out/main/index.js  # run the app
+```
+
+Or manually:
+
+```bash
 npm install          # also runs electron-rebuild for node-pty
-npm run dev          # dev mode with hot reload
 npm run build        # production build to /out
 npx electron out/main/index.js  # run production build
+npm run dev          # dev mode with hot reload
 ```
 
 ## Dependencies
@@ -66,16 +74,15 @@ Three Electron contexts connected via IPC:
 
 ```
 Main Process (Node.js)          Preload (bridge)        Renderer (React)
-├── index.ts (app entry)        ├── index.ts            ├── App.tsx (router)
+├── index.ts (app entry)        ├── index.ts            ├── App.tsx
 ├── windows/                    └── terminal.ts         ├── components/
-│   ├── orb.ts (floating orb)                           │   ├── orb/FloatingOrb.tsx
-│   ├── panel.ts (session list)                         │   └── sessions/
-│   ├── terminal.ts (per-session)                       │       ├── SessionList.tsx
-│   ├── prompt.ts (options dialog)                      │       ├── SessionCard.tsx
-│   ├── snippet-dialog.ts                               │       └── ContextBar.tsx
-│   ├── settings.ts                                     ├── hooks/useSessions.ts
-│   ├── model-selector.ts                               ├── terminal-main.ts (xterm.js)
-│   └── slack-compose.ts                                └── styles/globals.css
+│   ├── orb.ts (floating orb)                           │   └── orb/FloatingOrb.tsx
+│   ├── terminal.ts (per-session)                       ├── hooks/useSessions.ts
+│   ├── prompt.ts (options dialog)                      ├── terminal-main.ts (xterm.js)
+│   ├── snippet-dialog.ts                               └── styles/globals.css
+│   ├── settings.ts
+│   ├── model-selector.ts
+│   └── slack-compose.ts
 ├── services/
 │   ├── pty-manager.ts
 │   ├── session-spawner.ts

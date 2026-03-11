@@ -1,4 +1,5 @@
 import { ipcMain, BrowserWindow, app, shell } from 'electron'
+import { exec } from 'child_process'
 import { SESSION_COLORS } from '@shared/constants/colors'
 import { createTerminalWindow } from '../windows/terminal'
 import { getOrbWindow } from '../windows/orb'
@@ -8,8 +9,6 @@ import { toggleSkillBrowserWindow } from '../windows/skill-browser'
 import { toggleModelSelectorWindow } from '../windows/model-selector'
 import { IPC_CHANNELS } from '../ipc/channels'
 import { recordSession } from './session-history'
-import { formatEffortLevel } from '@shared/utils/format'
-import { SETTINGS_FILE } from '@shared/constants/paths'
 import * as ptyManager from './pty-manager'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -28,16 +27,7 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
   const ptyId = existingPtyId || `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const shellPtyId = shellTab ? `shell-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` : undefined
 
-  // Read effort level from Claude settings
-  let effortLevel = 'default'
-  try {
-    const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'))
-    if (settings.effortLevel) effortLevel = settings.effortLevel
-  } catch { /* use default */ }
-
-  // Build display title: [Title] - [Effort] (model added later when detected)
-  const baseTitle = title || 'Claude Code'
-  const displayTitle = `${baseTitle} - ${formatEffortLevel(effortLevel)}`
+  const displayTitle = title || 'Claude Code'
 
   // Record in history for "Revive Recent Session"
   recordSession({
@@ -185,6 +175,53 @@ export function registerTerminalIpc(): void {
     const session = ptyManager.getByWindowId(win.id)
     if (!session) return
     toggleModelSelectorWindow(win, session.color)
+  })
+
+  // Get GitHub remote URL for the session's working directory
+  ipcMain.handle('terminal:github-url', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return null
+    const session = ptyManager.getByWindowId(win.id)
+    if (!session) return null
+
+    return new Promise<string | null>((resolve) => {
+      exec('git remote get-url origin', { cwd: session.cwd, timeout: 3000 }, (err, stdout) => {
+        if (err || !stdout.trim()) { resolve(null); return }
+        const url = stdout.trim()
+        // Convert git@github.com:user/repo.git or https://github.com/user/repo.git to browser URL
+        let browserUrl: string | null = null
+        const sshMatch = url.match(/git@github\.com:(.+?)(?:\.git)?$/)
+        const httpsMatch = url.match(/https?:\/\/github\.com\/(.+?)(?:\.git)?$/)
+        if (sshMatch) {
+          browserUrl = `https://github.com/${sshMatch[1]}`
+        } else if (httpsMatch) {
+          browserUrl = `https://github.com/${httpsMatch[1]}`
+        }
+        resolve(browserUrl)
+      })
+    })
+  })
+
+  // Open GitHub repo in browser
+  ipcMain.on('terminal:open-github', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const session = ptyManager.getByWindowId(win.id)
+    if (!session) return
+
+    exec('git remote get-url origin', { cwd: session.cwd, timeout: 3000 }, (err, stdout) => {
+      if (err || !stdout.trim()) return
+      const url = stdout.trim()
+      let browserUrl: string | null = null
+      const sshMatch = url.match(/git@github\.com:(.+?)(?:\.git)?$/)
+      const httpsMatch = url.match(/https?:\/\/github\.com\/(.+?)(?:\.git)?$/)
+      if (sshMatch) {
+        browserUrl = `https://github.com/${sshMatch[1]}`
+      } else if (httpsMatch) {
+        browserUrl = `https://github.com/${httpsMatch[1]}`
+      }
+      if (browserUrl) shell.openExternal(browserUrl)
+    })
   })
 
   // Save clipboard image to temp file and return the path

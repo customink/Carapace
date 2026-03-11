@@ -42,5 +42,8 @@ export const IPC_CHANNELS = {
   SLACK_COMPOSE: 'slack:compose',
 
   // Terminal title
-  TERMINAL_TITLE_UPDATED: 'terminal:title-updated'
+  TERMINAL_TITLE_UPDATED: 'terminal:title-updated',
+
+  // Thinking state (Claude actively generating)
+  SESSION_THINKING: 'session:thinking'
 } as const

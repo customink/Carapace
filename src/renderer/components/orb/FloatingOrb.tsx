@@ -18,7 +18,7 @@ const MINI_ORB_SIZE = 28
 const ORBIT_RADIUS = 60
 const LABEL_OFFSET = 16 // extra distance beyond mini-orb edge for % label
 const CENTER_X = 105 // half of 210 wide
-const CENTER_Y = 75  // shifted up in 150-tall window
+const CENTER_Y = 105 // centered in 210-tall window
 
 export function FloatingOrb() {
   const { activeSessions } = useSessions()
@@ -26,12 +26,13 @@ export function FloatingOrb() {
   const didDrag = useRef(false)
   const dragStart = useRef({ x: 0, y: 0 })
   const [attentionPids, setAttentionPids] = useState<Set<number>>(new Set())
+  const [thinkingPids, setThinkingPids] = useState<Set<number>>(new Set())
 
   // Only show sessions spawned by Carapace on the orb
   const managedSessions = activeSessions.filter(s => s.managed)
   const count = managedSessions.length
 
-  // Listen for attention notifications from main process
+  // Listen for attention and thinking notifications from main process
   useEffect(() => {
     const api = window.carapace
     if (!api) return
@@ -52,9 +53,19 @@ export function FloatingOrb() {
       })
     })
 
+    const unsubThinking = api.onSessionThinking?.((pid: number, isThinking: boolean) => {
+      setThinkingPids(prev => {
+        const next = new Set(prev)
+        if (isThinking) next.add(pid)
+        else next.delete(pid)
+        return next
+      })
+    })
+
     return () => {
       unsubAttention?.()
       unsubClear?.()
+      unsubThinking?.()
     }
   }, [])
 
@@ -87,6 +98,7 @@ export function FloatingOrb() {
         rawColor: session.color,
         pid: session.pid,
         needsAttention: session.pid ? attentionPids.has(session.pid) : false,
+        isThinking: session.isThinking || (session.pid ? thinkingPids.has(session.pid) : false),
         contextPercent: Math.round(session.contextPercent),
         initial: displayLabel,
         x: CENTER_X + cos * ORBIT_RADIUS - MINI_ORB_SIZE / 2,
@@ -95,7 +107,7 @@ export function FloatingOrb() {
         labelY: CENTER_Y + sin * labelDist,
       }
     })
-  }, [sortedSessions, count, attentionPids])
+  }, [sortedSessions, count, attentionPids, thinkingPids])
 
   const handleMainMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return
@@ -231,7 +243,7 @@ export function FloatingOrb() {
         {miniOrbs.filter(o => !o.needsAttention && o.contextPercent > 0).map((orb) => (
           <motion.span
             key={`label-${orb.id}`}
-            className="absolute pointer-events-none"
+            className="absolute pointer-events-none flex items-center gap-[2px]"
             style={{
               left: orb.labelX,
               top: orb.labelY,
@@ -248,7 +260,48 @@ export function FloatingOrb() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
           >
+            {orb.isThinking && (
+              <span
+                className="inline-block animate-spin"
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: '50%',
+                  border: '1.5px solid transparent',
+                  borderTopColor: orb.rawColor,
+                  borderRightColor: orb.rawColor,
+                  flexShrink: 0,
+                }}
+              />
+            )}
             {orb.contextPercent}%
+          </motion.span>
+        ))}
+        {/* Thinking spinner for sessions with 0% context (no label shown yet) */}
+        {miniOrbs.filter(o => !o.needsAttention && o.contextPercent === 0 && o.isThinking).map((orb) => (
+          <motion.span
+            key={`thinking-${orb.id}`}
+            className="absolute pointer-events-none"
+            style={{
+              left: orb.labelX,
+              top: orb.labelY,
+              transform: 'translate(-50%, -50%)',
+            }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <span
+              className="inline-block animate-spin"
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                border: '1.5px solid transparent',
+                borderTopColor: orb.rawColor,
+                borderRightColor: orb.rawColor,
+              }}
+            />
           </motion.span>
         ))}
       </AnimatePresence>

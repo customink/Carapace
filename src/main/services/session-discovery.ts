@@ -83,7 +83,8 @@ export async function discoverSessionsAsync(): Promise<SessionState[]> {
         color,
         title: ptySession?.title || '',
         label: ptySession?.label || '',
-        managed: !!ptySession
+        managed: !!ptySession,
+        isThinking: ptySession?.isThinking || false
       })
     } else {
       const newColor = ptySession?.color || sessionColor(sessionId)
@@ -107,7 +108,8 @@ export async function discoverSessionsAsync(): Promise<SessionState[]> {
         color: newColor,
         title: ptySession?.title || '',
         label: ptySession?.label || '',
-        managed: !!ptySession
+        managed: !!ptySession,
+        isThinking: ptySession?.isThinking || false
       })
     }
   }

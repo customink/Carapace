@@ -36,6 +36,12 @@ const api = {
     const handler = (_event: Electron.IpcRendererEvent, pid: number) => callback(pid)
     ipcRenderer.on(IPC_CHANNELS.SESSION_ATTENTION_CLEAR, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.SESSION_ATTENTION_CLEAR, handler)
+  },
+
+  onSessionThinking: (callback: (pid: number, isThinking: boolean) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, pid: number, isThinking: boolean) => callback(pid, isThinking)
+    ipcRenderer.on(IPC_CHANNELS.SESSION_THINKING, handler)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.SESSION_THINKING, handler)
   }
 }
 

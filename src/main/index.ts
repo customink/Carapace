@@ -35,6 +35,14 @@ app.whenReady().then(() => {
     exec(`afplay "${chimeSettings.chimeSound}" -v ${vol}`)
   })
 
+  // Notify orb when a session starts/stops thinking
+  ptyManager.onThinkingChange((pid, isThinking) => {
+    const orb = getOrbWindow()
+    if (orb && !orb.isDestroyed()) {
+      orb.webContents.send(IPC_CHANNELS.SESSION_THINKING, pid, isThinking)
+    }
+  })
+
   createOrbWindow()
 
   // Session creation

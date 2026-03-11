@@ -32,6 +32,8 @@ declare global {
       showSnippetDialog: () => void
       snippetContextMenu: (id: string) => void
       onSnippetsUpdated: (callback: (snippets: Snippet[]) => void) => () => void
+      getGitHubUrl: () => Promise<string | null>
+      openGitHub: () => void
       slackCompose: () => void
       onTitleUpdated: (callback: (title: string) => void) => () => void
       onColorUpdated: (callback: (color: string) => void) => () => void
@@ -58,6 +60,15 @@ function tintedBackground(hex: string, tint = 0.08): string {
 
 function setupCopyPaste(terminal: Terminal, sendData: (data: string) => void) {
   terminal.attachCustomKeyEventHandler((event) => {
+    // Shift+Enter → send CSI u sequence so Claude Code inserts a newline
+    // Must block both keydown and keypress to prevent xterm from also sending \r
+    if (event.shiftKey && (event.key === 'Enter' || event.code === 'Enter')) {
+      if (event.type === 'keydown') {
+        sendData('\x1b[13;2u')
+      }
+      return false
+    }
+
     if (event.type !== 'keydown') return true
 
     if (event.metaKey && event.key === 'c') {
@@ -386,6 +397,15 @@ async function init() {
     }
     claudeTerminal.options.theme = newTheme
     if (shellTerminal) shellTerminal.options.theme = newTheme
+  })
+
+  // ─── GitHub ───
+  const githubBtn = document.getElementById('github-btn')!
+  window.carapaceTerminal.getGitHubUrl().then(url => {
+    if (url) githubBtn.style.display = ''
+  })
+  githubBtn.addEventListener('click', () => {
+    window.carapaceTerminal.openGitHub()
   })
 
   // ─── Slack ───

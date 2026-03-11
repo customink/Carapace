@@ -63,6 +63,8 @@ export interface SessionState {
   label?: string
   /** true when session was spawned by Carapace (has a PTY in pty-manager) */
   managed?: boolean
+  /** true when Claude is actively generating a response */
+  isThinking?: boolean
 }
 
 export interface CredentialsInfo {
