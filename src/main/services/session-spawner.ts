@@ -243,6 +243,13 @@ export function registerTerminalIpc(): void {
     })
   })
 
+  // Open URL in default browser
+  ipcMain.on('terminal:open-external', (_event, url: string) => {
+    if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
+      shell.openExternal(url)
+    }
+  })
+
   // Open GitHub repo in browser
   ipcMain.on('terminal:open-github', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)

@@ -36,6 +36,7 @@ declare global {
       openGitHub: () => void
       toggleFileTree: () => void
       onFileTreeClosed: (callback: () => void) => () => void
+      openExternal: (url: string) => void
       showContextMenu: (hasSelection: boolean) => void
       slackCompose: () => void
       onTitleUpdated: (callback: (title: string) => void) => () => void
@@ -171,7 +172,7 @@ async function init() {
   })
 
   claudeTerminal.loadAddon(claudeFit)
-  claudeTerminal.loadAddon(new WebLinksAddon())
+  claudeTerminal.loadAddon(new WebLinksAddon((_e, url) => window.carapaceTerminal.openExternal(url)))
   claudeTerminal.open(document.getElementById('terminal')!)
   claudeFit.fit()
 
@@ -234,7 +235,7 @@ async function init() {
     })
 
     shellTerminal.loadAddon(shellFit)
-    shellTerminal.loadAddon(new WebLinksAddon())
+    shellTerminal.loadAddon(new WebLinksAddon((_e, url) => window.carapaceTerminal.openExternal(url)))
     shellTerminal.open(document.getElementById('shell-terminal')!)
 
     shellTerminal.onData((data) => {

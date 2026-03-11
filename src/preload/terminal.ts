@@ -100,6 +100,9 @@ const terminalApi = {
     return () => { ipcRenderer.removeListener('terminal:filetree-closed', handler) }
   },
 
+  // Open URL in default browser
+  openExternal: (url: string) => ipcRenderer.send('terminal:open-external', url),
+
   // Context menu
   showContextMenu: (hasSelection: boolean) => ipcRenderer.send('terminal:context-menu', hasSelection),
 
