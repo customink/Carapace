@@ -584,6 +584,9 @@ async function init() {
     const shellId = await window.carapaceTerminal.createShellTab()
     if (shellId) addShellTab(shellId, name)
   }
+  if (tabNamesToRestore.length > 0) {
+    switchTab('claude')
+  }
 
   // Paste images from clipboard (text paste is handled by setupCopyPaste)
   document.addEventListener('paste', async (e) => {

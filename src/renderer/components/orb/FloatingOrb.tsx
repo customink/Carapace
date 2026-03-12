@@ -187,12 +187,56 @@ export function FloatingOrb() {
     window.carapace?.showContextMenu()
   }, [])
 
+  // Hit-test: only capture mouse events when cursor is over a visible element
+  const lastIgnored = useRef(true)
+  const handleHitTest = useCallback((e: React.MouseEvent) => {
+    // Don't toggle during drag
+    if (isDragging.current) return
+
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const mx = e.clientX - rect.left
+    const my = e.clientY - rect.top
+
+    const PAD = 6 // extra pixels of padding for easier targeting
+
+    // Check main orb (circle hit test)
+    const mainR = MAIN_ORB_SIZE / 2 + PAD
+    const dxMain = mx - CENTER_X
+    const dyMain = my - CENTER_Y
+    let over = (dxMain * dxMain + dyMain * dyMain) <= mainR * mainR
+
+    // Check mini-orbs
+    if (!over) {
+      const miniR = MINI_ORB_SIZE / 2 + PAD
+      over = miniOrbs.some(orb => {
+        const cx = orb.x + MINI_ORB_SIZE / 2
+        const cy = orb.y + MINI_ORB_SIZE / 2
+        const dx = mx - cx
+        const dy = my - cy
+        return (dx * dx + dy * dy) <= miniR * miniR
+      })
+    }
+
+    const shouldIgnore = !over
+    if (shouldIgnore !== lastIgnored.current) {
+      lastIgnored.current = shouldIgnore
+      window.carapace?.setIgnoreMouseEvents(shouldIgnore)
+    }
+  }, [miniOrbs])
+
   return (
     <div
       className="w-full h-full relative"
       onContextMenu={handleContextMenu}
+      onMouseMove={handleHitTest}
       onMouseEnter={() => window.carapace?.orbMouseEnter()}
-      onMouseLeave={() => window.carapace?.orbMouseLeave()}
+      onMouseLeave={() => {
+        window.carapace?.orbMouseLeave()
+        if (!lastIgnored.current) {
+          lastIgnored.current = true
+          window.carapace?.setIgnoreMouseEvents(true)
+        }
+      }}
     >
       {/* Static mini-orbs positioned radially */}
       <AnimatePresence>

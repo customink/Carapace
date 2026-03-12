@@ -39,6 +39,18 @@ export function createOrbWindow(): BrowserWindow {
   orbWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
   orbWindow.setOpacity(0.7)
 
+  // Make transparent areas click-through; forward cursor events so renderer can detect hover
+  orbWindow.setIgnoreMouseEvents(true, { forward: true })
+
+  ipcMain.on('orb:set-ignore-mouse', (_e, ignore: boolean) => {
+    if (!orbWindow || orbWindow.isDestroyed()) return
+    if (ignore) {
+      orbWindow.setIgnoreMouseEvents(true, { forward: true })
+    } else {
+      orbWindow.setIgnoreMouseEvents(false)
+    }
+  })
+
   // Animated opacity fade on hover
   let opacityTimer: ReturnType<typeof setInterval> | null = null
   let targetOpacity = 0.7

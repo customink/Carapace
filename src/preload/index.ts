@@ -19,6 +19,7 @@ const api = {
 
   orbMouseEnter: () => ipcRenderer.send('orb:mouse-enter'),
   orbMouseLeave: () => ipcRenderer.send('orb:mouse-leave'),
+  setIgnoreMouseEvents: (ignore: boolean) => ipcRenderer.send('orb:set-ignore-mouse', ignore),
 
   onSessionsUpdated: (callback: (sessions: unknown[]) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, sessions: unknown[]) => callback(sessions)
