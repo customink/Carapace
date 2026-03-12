@@ -21,18 +21,21 @@ const terminalApi = {
   saveClipboardImage: (buffer: ArrayBuffer) =>
     ipcRenderer.invoke('terminal:save-clipboard-image', Buffer.from(buffer)),
 
-  // Companion shell tab
-  shellSendData: (data: string) => ipcRenderer.send('terminal:shell-input', data),
-  shellResize: (cols: number, rows: number) => ipcRenderer.send('terminal:shell-resize', cols, rows),
+  // Shell tabs (multi-shell support)
+  createShellTab: () => ipcRenderer.invoke('terminal:create-shell-tab'),
+  closeShellTab: (shellId: string) => ipcRenderer.send('terminal:close-shell-tab', shellId),
+  updateShellTabNames: (names: string[]) => ipcRenderer.send('terminal:shell-tab-names', names),
+  shellSendData: (shellId: string, data: string) => ipcRenderer.send('terminal:shell-input', shellId, data),
+  shellResize: (shellId: string, cols: number, rows: number) => ipcRenderer.send('terminal:shell-resize', shellId, cols, rows),
 
-  onShellData: (callback: (data: string) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, data: string) => callback(data)
+  onShellData: (callback: (shellId: string, data: string) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, shellId: string, data: string) => callback(shellId, data)
     ipcRenderer.on('terminal:shell-data', handler)
     return () => { ipcRenderer.removeListener('terminal:shell-data', handler) }
   },
 
-  onShellExit: (callback: (code: number) => void) => {
-    const handler = (_e: Electron.IpcRendererEvent, code: number) => callback(code)
+  onShellExit: (callback: (shellId: string, code: number) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, shellId: string, code: number) => callback(shellId, code)
     ipcRenderer.on('terminal:shell-exit', handler)
     return () => { ipcRenderer.removeListener('terminal:shell-exit', handler) }
   },
@@ -125,9 +128,17 @@ const terminalApi = {
   // File path from drag-drop File objects (contextIsolation blocks file.path)
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
 
-  // Sidebar order
-  getSidebarOrder: () => ipcRenderer.invoke('sidebar:get-order'),
+  // Sidebar settings (order + visibility)
+  getSidebarSettings: () => ipcRenderer.invoke('sidebar:get-settings'),
   saveSidebarOrder: (order: string[]) => ipcRenderer.send('sidebar:save-order', order),
+  saveSidebarHidden: (hidden: string[]) => ipcRenderer.send('sidebar:save-hidden', hidden),
+  showSidebarVisibilityMenu: () => ipcRenderer.send('sidebar:visibility-menu'),
+
+  onSidebarVisibilityChanged: (callback: (hidden: string[]) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, hidden: string[]) => callback(hidden)
+    ipcRenderer.on('sidebar:visibility-changed', handler)
+    return () => { ipcRenderer.removeListener('sidebar:visibility-changed', handler) }
+  },
 
   // Context menu
   showContextMenu: (hasSelection: boolean) => ipcRenderer.send('terminal:context-menu', hasSelection),

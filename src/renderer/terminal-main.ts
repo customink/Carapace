@@ -12,12 +12,15 @@ declare global {
       resize: (cols: number, rows: number) => void
       onData: (callback: (data: string) => void) => () => void
       onExit: (callback: (code: number) => void) => () => void
-      getSessionInfo: () => Promise<{ color: string; ptyId: string }>
+      getSessionInfo: () => Promise<{ color: string; ptyId: string; shellTabNames?: string[] }>
       saveClipboardImage: (buffer: ArrayBuffer) => Promise<string>
-      shellSendData: (data: string) => void
-      shellResize: (cols: number, rows: number) => void
-      onShellData: (callback: (data: string) => void) => () => void
-      onShellExit: (callback: (code: number) => void) => () => void
+      createShellTab: () => Promise<string | null>
+      closeShellTab: (shellId: string) => void
+      updateShellTabNames: (names: string[]) => void
+      shellSendData: (shellId: string, data: string) => void
+      shellResize: (shellId: string, cols: number, rows: number) => void
+      onShellData: (callback: (shellId: string, data: string) => void) => () => void
+      onShellExit: (callback: (shellId: string, code: number) => void) => () => void
       toggleNotes: () => void
       onNotesClosed: (callback: () => void) => () => void
       toggleSkills: () => void
@@ -43,8 +46,11 @@ declare global {
       onPromptHistoryClosed: (callback: () => void) => () => void
       openExternal: (url: string) => void
       getPathForFile: (file: File) => string
-      getSidebarOrder: () => Promise<string[] | null>
+      getSidebarSettings: () => Promise<{ order: string[] | null; hidden: string[] }>
       saveSidebarOrder: (order: string[]) => void
+      saveSidebarHidden: (hidden: string[]) => void
+      showSidebarVisibilityMenu: () => void
+      onSidebarVisibilityChanged: (callback: (hidden: string[]) => void) => () => void
       showContextMenu: (hasSelection: boolean) => void
       slackCompose: () => void
       onTitleUpdated: (callback: (title: string) => void) => () => void
@@ -124,27 +130,34 @@ function setupDragDrop(
   const overlay = document.getElementById('drop-overlay')!
   let dragCounter = 0
 
+  // Only intercept external file drops — let internal drags (sidebar reorder) pass through
+  function isExternalFileDrag(e: DragEvent): boolean {
+    return !!e.dataTransfer?.types.includes('Files')
+  }
+
   window.addEventListener('dragenter', (e) => {
+    if (!isExternalFileDrag(e)) return
     e.preventDefault()
-    if (e.dataTransfer?.types.includes('Files')) {
-      dragCounter++
-      overlay.classList.add('visible')
-    }
+    dragCounter++
+    overlay.classList.add('visible')
   }, true)
 
   window.addEventListener('dragleave', (e) => {
+    if (!isExternalFileDrag(e)) return
     e.preventDefault()
     dragCounter--
     if (dragCounter <= 0) { dragCounter = 0; overlay.classList.remove('visible') }
   }, true)
 
   window.addEventListener('dragover', (e) => {
+    if (!isExternalFileDrag(e)) return
     e.preventDefault()
     e.stopPropagation()
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
   }, true)
 
   window.addEventListener('drop', (e) => {
+    if (!isExternalFileDrag(e)) return
     e.preventDefault()
     e.stopPropagation()
     dragCounter = 0
@@ -168,6 +181,10 @@ async function init() {
   let color = params.get('color') || '#7C3AED'
   const title = params.get('title') || 'Claude Code'
   const hasShellTab = params.get('shellTab') === '1'
+  let savedShellTabNames: string[] | undefined
+  try {
+    savedShellTabNames = JSON.parse(params.get('shellTabNames') || '')
+  } catch { /* no saved names */ }
 
   try {
     const info = await window.carapaceTerminal.getSessionInfo()
@@ -186,27 +203,68 @@ async function init() {
   const sidebar = document.getElementById('sidebar')!
   sidebar.style.backgroundColor = tintedBackground(color, 0.1)
 
-  // ─── Sidebar button reordering ───
+  // ─── Sidebar button reordering + visibility ───
   const reorderableBtns = Array.from(sidebar.querySelectorAll('.sidebar-reorderable')) as HTMLElement[]
   const snippetsSection = document.getElementById('custom-snippets')!
   const addSnippetBtn = document.getElementById('add-snippet-btn')!
 
-  // Apply saved order
-  const savedOrder = await window.carapaceTerminal.getSidebarOrder()
-  if (savedOrder && Array.isArray(savedOrder)) {
-    const byId = new Map(reorderableBtns.map(btn => [btn.dataset.sidebarId!, btn]))
-    // Insert in saved order before the snippets section
-    for (const id of savedOrder) {
-      const btn = byId.get(id)
-      if (btn) sidebar.insertBefore(btn, snippetsSection)
+  // Button labels for the visibility context menu
+  const sidebarLabels: Record<string, string> = {
+    notes: 'Notes', skills: 'Slash Commands', skillbrowser: 'Skills',
+    filetree: 'File Tree', model: 'Switch Model', github: 'GitHub',
+    prompthistory: 'Prompt History', imagegallery: 'Image Gallery',
+    openfolder: 'Open Folder', slack: 'Share to Slack',
+  }
+
+  let hiddenBtns = new Set<string>()
+
+  // Apply saved order and visibility
+  const sidebarSettings = await window.carapaceTerminal.getSidebarSettings()
+  if (sidebarSettings) {
+    if (sidebarSettings.order && Array.isArray(sidebarSettings.order)) {
+      const byId = new Map(reorderableBtns.map(btn => [btn.dataset.sidebarId!, btn]))
+      for (const id of sidebarSettings.order) {
+        const btn = byId.get(id)
+        if (btn) sidebar.insertBefore(btn, snippetsSection)
+      }
+      for (const btn of reorderableBtns) {
+        if (!sidebarSettings.order.includes(btn.dataset.sidebarId!)) {
+          sidebar.insertBefore(btn, snippetsSection)
+        }
+      }
     }
-    // Any buttons not in saved order go before snippets too
-    for (const btn of reorderableBtns) {
-      if (!savedOrder.includes(btn.dataset.sidebarId!)) {
-        sidebar.insertBefore(btn, snippetsSection)
+    if (sidebarSettings.hidden && Array.isArray(sidebarSettings.hidden)) {
+      hiddenBtns = new Set(sidebarSettings.hidden)
+      for (const btn of reorderableBtns) {
+        const id = btn.dataset.sidebarId!
+        // Don't hide github (it has its own display logic)
+        if (hiddenBtns.has(id) && id !== 'github') {
+          btn.style.display = 'none'
+        }
       }
     }
   }
+
+  // Right-click on sidebar background → toggle button visibility
+  sidebar.addEventListener('contextmenu', (e) => {
+    // Don't interfere with right-clicks on individual buttons that have their own context menus
+    const target = e.target as HTMLElement
+    if (target.closest('.sidebar-btn')) return
+
+    e.preventDefault()
+    // Build a checklist popup via IPC to main process (native menu)
+    window.carapaceTerminal.showSidebarVisibilityMenu()
+  })
+
+  // Listen for visibility changes from main process (native menu toggles)
+  window.carapaceTerminal.onSidebarVisibilityChanged((hidden: string[]) => {
+    hiddenBtns = new Set(hidden)
+    for (const btn of reorderableBtns) {
+      const id = btn.dataset.sidebarId!
+      if (id === 'github') continue // github has its own display logic
+      btn.style.display = hiddenBtns.has(id) ? 'none' : ''
+    }
+  })
 
   // Drag-and-drop reordering
   let draggedBtn: HTMLElement | null = null
@@ -315,38 +373,75 @@ async function init() {
   setupCopyPaste(claudeTerminal, (data) => window.carapaceTerminal.sendData(data))
   setupContextMenu(claudeTerminal, document.getElementById('terminal')!)
 
-  // Paste images from clipboard (text paste is handled by setupCopyPaste)
-  document.addEventListener('paste', async (e) => {
-    if (!e.clipboardData) return
-    const imageItem = Array.from(e.clipboardData.items).find(
-      item => item.type.startsWith('image/')
-    )
-    if (!imageItem) return // Only handle image pastes — text is handled by Cmd+V in setupCopyPaste
-    e.preventDefault()
-    const blob = imageItem.getAsFile()
-    if (!blob) return
-    const buffer = await blob.arrayBuffer()
-    const filePath = await window.carapaceTerminal.saveClipboardImage(buffer)
-    // Send to whichever terminal is active
-    if (activeTab === 'claude') {
-      window.carapaceTerminal.sendData(filePath)
-      claudeTerminal.focus()
-    } else if (shellTerminal) {
-      window.carapaceTerminal.shellSendData(filePath)
-      shellTerminal.focus()
+  // ─── Multi-shell tab system ───
+  interface ShellTab {
+    id: string
+    name: string
+    terminal: Terminal
+    fitAddon: FitAddon
+    paneEl: HTMLElement
+    tabEl: HTMLElement
+  }
+
+  const shellTabs: ShellTab[] = []
+  let activeTab = 'claude'  // 'claude' or a shellPtyId
+  let shellCounter = 0
+
+  function persistShellTabNames() {
+    window.carapaceTerminal.updateShellTabNames(shellTabs.map(t => t.name))
+  }
+  const terminalContainer = document.getElementById('terminal-container')!
+  const claudeTab = document.getElementById('tab-claude')!
+  const claudePane = document.getElementById('terminal')!
+  const addTabBtn = document.getElementById('add-tab-btn')!
+
+  function getActiveShellTab(): ShellTab | undefined {
+    return shellTabs.find(t => t.id === activeTab)
+  }
+
+  function switchTab(tabId: string) {
+    activeTab = tabId
+    claudeTab.classList.toggle('active', tabId === 'claude')
+    claudePane.classList.toggle('active', tabId === 'claude')
+    for (const st of shellTabs) {
+      st.tabEl.classList.toggle('active', st.id === tabId)
+      st.paneEl.classList.toggle('active', st.id === tabId)
     }
-  })
+    if (tabId === 'claude') {
+      claudeFit.fit()
+      window.carapaceTerminal.resize(claudeTerminal.cols, claudeTerminal.rows)
+      claudeTerminal.focus()
+    } else {
+      const tab = getActiveShellTab()
+      if (tab) {
+        tab.fitAddon.fit()
+        window.carapaceTerminal.shellResize(tab.id, tab.terminal.cols, tab.terminal.rows)
+        tab.terminal.focus()
+      }
+    }
+  }
 
-  // ─── Shell tab (optional) ───
-  let shellTerminal: Terminal | null = null
-  let shellFit: FitAddon | null = null
-  let activeTab: 'claude' | 'shell' = 'claude'
-
-  if (hasShellTab) {
+  function addShellTab(shellPtyId: string, tabName?: string) {
+    shellCounter++
     tabbar.classList.add('visible')
 
-    shellFit = new FitAddon()
-    shellTerminal = new Terminal({
+    const name = tabName || `Shell ${shellCounter}`
+
+    // Create tab element
+    const tabEl = document.createElement('div')
+    tabEl.className = 'tab'
+    tabEl.dataset.shellId = shellPtyId
+    tabEl.innerHTML = `<span class="tab-icon">&#10095;</span><span class="tab-label">${name}</span><button class="tab-close" title="Close">&times;</button>`
+    tabbar.insertBefore(tabEl, addTabBtn)
+
+    // Create terminal pane
+    const paneEl = document.createElement('div')
+    paneEl.className = 'terminal-pane'
+    terminalContainer.appendChild(paneEl)
+
+    // Create terminal
+    const fitAddon = new FitAddon()
+    const terminal = new Terminal({
       cursorBlink: true,
       cursorStyle: 'bar',
       fontSize: 13,
@@ -355,75 +450,175 @@ async function init() {
       allowProposedApi: true,
       linkHandler,
     })
+    terminal.loadAddon(fitAddon)
+    terminal.loadAddon(new WebLinksAddon((_e, url) => window.carapaceTerminal.openExternal(url)))
+    terminal.open(paneEl)
+    setupCopyPaste(terminal, (data) => window.carapaceTerminal.shellSendData(shellPtyId, data))
+    setupContextMenu(terminal, paneEl)
 
-    shellTerminal.loadAddon(shellFit)
-    shellTerminal.loadAddon(new WebLinksAddon((_e, url) => window.carapaceTerminal.openExternal(url)))
-    shellTerminal.open(document.getElementById('shell-terminal')!)
-
-    shellTerminal.onData((data) => {
-      window.carapaceTerminal.shellSendData(data)
+    terminal.onData((data) => {
+      window.carapaceTerminal.shellSendData(shellPtyId, data)
     })
 
-    window.carapaceTerminal.onShellData((data) => {
-      shellTerminal!.write(data)
+    const tab: ShellTab = { id: shellPtyId, name, terminal, fitAddon, paneEl, tabEl }
+    shellTabs.push(tab)
+
+    // Tab click
+    tabEl.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).classList.contains('tab-close')) return
+      switchTab(shellPtyId)
     })
 
-    window.carapaceTerminal.onShellExit(() => {
-      shellTerminal!.write('\r\n\x1b[90m[Shell exited]\x1b[0m\r\n')
-    })
+    // Right-click to rename (inline edit)
+    tabEl.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      const labelEl = tabEl.querySelector('.tab-label') as HTMLElement
+      if (!labelEl) return
+      labelEl.contentEditable = 'true'
+      labelEl.focus()
+      // Select all text
+      const range = document.createRange()
+      range.selectNodeContents(labelEl)
+      const sel = window.getSelection()
+      sel?.removeAllRanges()
+      sel?.addRange(range)
 
-    setupCopyPaste(shellTerminal, (data) => window.carapaceTerminal.shellSendData(data))
-    setupContextMenu(shellTerminal, document.getElementById('shell-terminal')!)
-    // (drag-drop handled at window level below)
-
-    // Tab switching
-    const claudeTab = document.getElementById('tab-claude')!
-    const shellTab = document.getElementById('tab-shell')!
-    const claudePane = document.getElementById('terminal')!
-    const shellPane = document.getElementById('shell-terminal')!
-
-    function switchTab(tab: 'claude' | 'shell') {
-      activeTab = tab
-      claudeTab.classList.toggle('active', tab === 'claude')
-      shellTab.classList.toggle('active', tab === 'shell')
-      claudePane.classList.toggle('active', tab === 'claude')
-      shellPane.classList.toggle('active', tab === 'shell')
-
-      if (tab === 'claude') {
-        claudeFit.fit()
-        window.carapaceTerminal.resize(claudeTerminal.cols, claudeTerminal.rows)
-        claudeTerminal.focus()
-      } else {
-        shellFit!.fit()
-        window.carapaceTerminal.shellResize(shellTerminal!.cols, shellTerminal!.rows)
-        shellTerminal!.focus()
+      const finishEdit = () => {
+        labelEl.contentEditable = 'false'
+        const newName = labelEl.textContent?.trim()
+        if (newName) {
+          tab.name = newName
+          labelEl.textContent = newName
+        } else {
+          labelEl.textContent = tab.name
+        }
+        persistShellTabNames()
+        labelEl.removeEventListener('blur', finishEdit)
+        labelEl.removeEventListener('keydown', onKey)
       }
-    }
-
-    claudeTab.addEventListener('click', () => switchTab('claude'))
-    shellTab.addEventListener('click', () => switchTab('shell'))
-
-    // Keyboard shortcut: Cmd+Shift+] and Cmd+Shift+[ to switch tabs
-    document.addEventListener('keydown', (e) => {
-      if (e.metaKey && e.shiftKey && e.key === ']') {
-        e.preventDefault()
-        switchTab(activeTab === 'claude' ? 'shell' : 'claude')
+      const onKey = (ke: KeyboardEvent) => {
+        if (ke.key === 'Enter') { ke.preventDefault(); labelEl.blur() }
+        if (ke.key === 'Escape') { labelEl.textContent = tab.name; labelEl.blur() }
       }
-      if (e.metaKey && e.shiftKey && e.key === '[') {
-        e.preventDefault()
-        switchTab(activeTab === 'claude' ? 'shell' : 'claude')
-      }
+      labelEl.addEventListener('blur', finishEdit)
+      labelEl.addEventListener('keydown', onKey)
     })
+
+    // Close button
+    tabEl.querySelector('.tab-close')!.addEventListener('click', () => {
+      removeShellTab(shellPtyId)
+    })
+
+    // Switch to new tab
+    switchTab(shellPtyId)
+
+    requestAnimationFrame(() => {
+      fitAddon.fit()
+      window.carapaceTerminal.shellResize(shellPtyId, terminal.cols, terminal.rows)
+      terminal.focus()
+    })
+
+    persistShellTabNames()
   }
+
+  function removeShellTab(shellPtyId: string) {
+    const idx = shellTabs.findIndex(t => t.id === shellPtyId)
+    if (idx < 0) return
+    const tab = shellTabs[idx]
+    tab.terminal.dispose()
+    tab.paneEl.remove()
+    tab.tabEl.remove()
+    shellTabs.splice(idx, 1)
+    window.carapaceTerminal.closeShellTab(shellPtyId)
+    persistShellTabNames()
+
+    if (activeTab === shellPtyId) {
+      switchTab(shellTabs.length > 0 ? shellTabs[shellTabs.length - 1].id : 'claude')
+    }
+    if (shellTabs.length === 0) {
+      tabbar.classList.remove('visible')
+    }
+  }
+
+  // Route shell data to correct terminal
+  window.carapaceTerminal.onShellData((shellId, data) => {
+    const tab = shellTabs.find(t => t.id === shellId)
+    if (tab) tab.terminal.write(data)
+  })
+
+  window.carapaceTerminal.onShellExit((shellId) => {
+    const tab = shellTabs.find(t => t.id === shellId)
+    if (tab) tab.terminal.write('\r\n\x1b[90m[Shell exited]\x1b[0m\r\n')
+  })
+
+  // "+" button to add shell tabs
+  addTabBtn.addEventListener('click', async () => {
+    const shellId = await window.carapaceTerminal.createShellTab()
+    if (shellId) addShellTab(shellId)
+  })
+
+  // Claude tab click
+  claudeTab.addEventListener('click', () => switchTab('claude'))
+
+  // Keyboard shortcut: Cmd+Shift+] and Cmd+Shift+[ to cycle tabs
+  document.addEventListener('keydown', (e) => {
+    if (!e.metaKey || !e.shiftKey) return
+    const allTabIds = ['claude', ...shellTabs.map(t => t.id)]
+    const curIdx = allTabIds.indexOf(activeTab)
+    if (e.key === ']') {
+      e.preventDefault()
+      switchTab(allTabIds[(curIdx + 1) % allTabIds.length])
+    }
+    if (e.key === '[') {
+      e.preventDefault()
+      switchTab(allTabIds[(curIdx - 1 + allTabIds.length) % allTabIds.length])
+    }
+  })
+
+  // Create initial shell tabs (restore saved tabs or create one if shellTab flag set)
+  const tabNamesToRestore = savedShellTabNames && savedShellTabNames.length > 0
+    ? savedShellTabNames
+    : hasShellTab ? [undefined] : []
+
+  for (const name of tabNamesToRestore) {
+    const shellId = await window.carapaceTerminal.createShellTab()
+    if (shellId) addShellTab(shellId, name)
+  }
+
+  // Paste images from clipboard (text paste is handled by setupCopyPaste)
+  document.addEventListener('paste', async (e) => {
+    if (!e.clipboardData) return
+    const imageItem = Array.from(e.clipboardData.items).find(
+      item => item.type.startsWith('image/')
+    )
+    if (!imageItem) return
+    e.preventDefault()
+    const blob = imageItem.getAsFile()
+    if (!blob) return
+    const buffer = await blob.arrayBuffer()
+    const filePath = await window.carapaceTerminal.saveClipboardImage(buffer)
+    const shellTab = getActiveShellTab()
+    if (activeTab === 'claude') {
+      window.carapaceTerminal.sendData(filePath)
+      claudeTerminal.focus()
+    } else if (shellTab) {
+      window.carapaceTerminal.shellSendData(shellTab.id, filePath)
+      shellTab.terminal.focus()
+    }
+  })
 
   // ─── Drag-drop files into terminal (window-level capture) ───
   setupDragDrop(
-    () => activeTab === 'shell' && shellTerminal
-      ? (data: string) => window.carapaceTerminal.shellSendData(data)
-      : (data: string) => window.carapaceTerminal.sendData(data),
-    () => activeTab === 'shell' && shellTerminal
-      ? () => shellTerminal!.focus()
-      : () => claudeTerminal.focus(),
+    () => {
+      const st = getActiveShellTab()
+      return st
+        ? (data: string) => window.carapaceTerminal.shellSendData(st.id, data)
+        : (data: string) => window.carapaceTerminal.sendData(data)
+    },
+    () => {
+      const st = getActiveShellTab()
+      return st ? () => st.terminal.focus() : () => claudeTerminal.focus()
+    },
   )
 
   // ─── Sidebar drawers (only one open at a time) ───
@@ -566,12 +761,13 @@ async function init() {
 
   // When a command is selected from any panel, type it into the active terminal
   window.carapaceTerminal.onTypeCommand((command: string) => {
-    if (activeTab === 'claude') {
+    const st = getActiveShellTab()
+    if (activeTab === 'claude' || !st) {
       window.carapaceTerminal.sendData(command)
       claudeTerminal.focus()
-    } else if (shellTerminal) {
-      window.carapaceTerminal.shellSendData(command)
-      shellTerminal.focus()
+    } else {
+      window.carapaceTerminal.shellSendData(st.id, command)
+      st.terminal.focus()
     }
   })
 
@@ -601,7 +797,7 @@ async function init() {
       selectionBackground: newColor + '40',
     }
     claudeTerminal.options.theme = newTheme
-    if (shellTerminal) shellTerminal.options.theme = newTheme
+    for (const st of shellTabs) st.terminal.options.theme = newTheme
   })
 
   // ─── GitHub ───
@@ -642,12 +838,13 @@ async function init() {
       btn.style.fontSize = '15px'
 
       btn.addEventListener('click', () => {
-        if (activeTab === 'claude') {
+        const st = getActiveShellTab()
+        if (activeTab === 'claude' || !st) {
           window.carapaceTerminal.sendData(snippet.prompt)
           claudeTerminal.focus()
-        } else if (shellTerminal) {
-          window.carapaceTerminal.shellSendData(snippet.prompt)
-          shellTerminal.focus()
+        } else {
+          window.carapaceTerminal.shellSendData(st.id, snippet.prompt)
+          st.terminal.focus()
         }
       })
 
@@ -676,9 +873,12 @@ async function init() {
     if (activeTab === 'claude') {
       claudeFit.fit()
       window.carapaceTerminal.resize(claudeTerminal.cols, claudeTerminal.rows)
-    } else if (shellTerminal && shellFit) {
-      shellFit.fit()
-      window.carapaceTerminal.shellResize(shellTerminal.cols, shellTerminal.rows)
+    } else {
+      const st = getActiveShellTab()
+      if (st) {
+        st.fitAddon.fit()
+        window.carapaceTerminal.shellResize(st.id, st.terminal.cols, st.terminal.rows)
+      }
     }
   }
 

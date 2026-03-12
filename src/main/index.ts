@@ -303,9 +303,10 @@ app.whenReady().then(() => {
                   entry.title || undefined,
                   entry.folder || undefined,
                   entry.color || undefined,
-                  entry.shellTab,
+                  entry.shellTab || (entry.shellTabNames && entry.shellTabNames.length > 0),
                   newPtyId,
                   entry.label || undefined,
+                  entry.shellTabNames || undefined,
                 )
               }
             }

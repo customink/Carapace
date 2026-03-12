@@ -24,12 +24,11 @@ let spawnCount = 0
  * Spawn a new Claude Code session in an embedded Electron terminal window.
  * Uses xterm.js + node-pty for a fully controlled terminal experience.
  */
-export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string, colorOverride?: string, shellTab?: boolean, existingPtyId?: string, label?: string): void {
+export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string, colorOverride?: string, shellTab?: boolean, existingPtyId?: string, label?: string, shellTabNames?: string[]): void {
   const color = colorOverride || SESSION_COLORS[spawnCount % SESSION_COLORS.length]!
   spawnCount++
 
   const ptyId = existingPtyId || `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  const shellPtyId = shellTab ? `shell-${Date.now()}-${Math.random().toString(36).slice(2, 8)}` : undefined
 
   const displayTitle = title || 'Claude Code'
 
@@ -47,7 +46,7 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
   // Ensure dock is visible so terminal windows can show
   app.dock?.show()
 
-  const win = createTerminalWindow({ color, ptyId, title: displayTitle, shellTab })
+  const win = createTerminalWindow({ color, ptyId, title: displayTitle, shellTab, shellTabNames })
 
   // Wait for the renderer to be ready, then create the PTY(s)
   win.webContents.once('did-finish-load', () => {
@@ -62,20 +61,11 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
       title,
     })
 
-    // Restore label from history if reviving
-    if (label) {
-      const session = ptyManager.getByWindowId(win.id)
-      if (session) session.label = label
-    }
-
-    if (shellTab && shellPtyId) {
-      ptyManager.createShellPty({
-        ptyId: shellPtyId,
-        windowId: win.id,
-        cwd,
-        cols: 80,
-        rows: 24,
-      })
+    // Restore label and shell tab names from history if reviving
+    const session = ptyManager.getByWindowId(win.id)
+    if (session) {
+      if (label) session.label = label
+      if (shellTabNames) session.shellTabNames = shellTabNames
     }
 
     // Immediately broadcast updated sessions so the orb shows the new mini-orb
@@ -102,13 +92,16 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
 
   // When window is closed by user, save state, clean up PTY(s), and update orb
   win.on('closed', () => {
-    // Save final label/color to history before destroying
+    // Save final label/color/shellTabNames to history before destroying
     const session = ptyManager.getByWindowId(win.id)
     if (session) {
-      updateHistoryEntry(ptyId, { label: session.label, color: session.color })
+      updateHistoryEntry(ptyId, { label: session.label, color: session.color, shellTabNames: session.shellTabNames })
     }
     ptyManager.destroyPty(ptyId)
-    if (shellPtyId) ptyManager.destroyShellPty(shellPtyId)
+    // Destroy all shell tabs for this window
+    for (const id of ptyManager.getShellPtyIdsByWindowId(win.id)) {
+      ptyManager.destroyShellPty(id)
+    }
 
     invalidateCache()
     discoverSessionsAsync().then(sessions => {
@@ -147,24 +140,49 @@ export function registerTerminalIpc(): void {
     if (!win) return null
     const session = ptyManager.getByWindowId(win.id)
     if (!session) return null
-    return { color: session.color, ptyId: session.ptyId }
+    return { color: session.color, ptyId: session.ptyId, shellTabNames: session.shellTabNames }
   })
 
-  // Shell tab: keystrokes from renderer -> shell PTY
-  ipcMain.on('terminal:shell-input', (event, data: string) => {
-    const win = BrowserWindow.fromWebContents(event.sender)
-    if (!win) return
-    const session = ptyManager.getShellByWindowId(win.id)
-    if (session) ptyManager.writeToShellPty(session.ptyId, data)
+  // Shell tabs: keystrokes from renderer -> shell PTY (identified by shellPtyId)
+  ipcMain.on('terminal:shell-input', (_event, shellPtyId: string, data: string) => {
+    ptyManager.writeToShellPty(shellPtyId, data)
   })
 
-  // Shell tab: resize events
-  ipcMain.on('terminal:shell-resize', (event, cols: number, rows: number) => {
+  // Shell tabs: resize events
+  ipcMain.on('terminal:shell-resize', (_event, shellPtyId: string, cols: number, rows: number) => {
+    ptyManager.resizeShellPty(shellPtyId, cols, rows)
+  })
+
+  // Create a new shell tab
+  ipcMain.handle('terminal:create-shell-tab', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return null
+    const session = ptyManager.getByWindowId(win.id)
+    if (!session) return null
+    const shellPtyId = `shell-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    ptyManager.createShellPty({
+      ptyId: shellPtyId,
+      windowId: win.id,
+      cwd: session.cwd,
+      cols: 80,
+      rows: 24,
+    })
+    return shellPtyId
+  })
+
+  // Close a shell tab
+  ipcMain.on('terminal:close-shell-tab', (_event, shellPtyId: string) => {
+    ptyManager.destroyShellPty(shellPtyId)
+  })
+
+  // Update shell tab names (for persistence on revive)
+  ipcMain.on('terminal:shell-tab-names', (event, names: string[]) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
-    const session = ptyManager.getShellByWindowId(win.id)
-    if (session) ptyManager.resizeShellPty(session.ptyId, cols, rows)
+    const session = ptyManager.getByWindowId(win.id)
+    if (session) session.shellTabNames = names
   })
+
 
   // Right-click context menu for terminal
   ipcMain.on('terminal:context-menu', (event, hasSelection: boolean) => {
@@ -390,22 +408,83 @@ export function registerTerminalIpc(): void {
     })
   })
 
-  // Sidebar order persistence
-  const sidebarOrderFile = path.join(os.homedir(), '.claude', 'usage-data', 'carapace-sidebar-order.json')
+  // Sidebar settings persistence (order + hidden)
+  const sidebarSettingsFile = path.join(os.homedir(), '.claude', 'usage-data', 'carapace-sidebar-order.json')
 
-  ipcMain.handle('sidebar:get-order', () => {
+  function loadSidebarSettings(): { order: string[] | null; hidden: string[] } {
     try {
-      return JSON.parse(fs.readFileSync(sidebarOrderFile, 'utf-8'))
+      const data = JSON.parse(fs.readFileSync(sidebarSettingsFile, 'utf-8'))
+      // Backwards compat: old format was just an array
+      if (Array.isArray(data)) return { order: data, hidden: [] }
+      return { order: data.order || null, hidden: data.hidden || [] }
     } catch {
-      return null
+      return { order: null, hidden: [] }
     }
+  }
+
+  function saveSidebarSettings(settings: { order: string[] | null; hidden: string[] }): void {
+    try {
+      fs.mkdirSync(path.dirname(sidebarSettingsFile), { recursive: true })
+      fs.writeFileSync(sidebarSettingsFile, JSON.stringify(settings), 'utf-8')
+    } catch { /* ignore */ }
+  }
+
+  ipcMain.handle('sidebar:get-settings', () => {
+    return loadSidebarSettings()
   })
 
   ipcMain.on('sidebar:save-order', (_event, order: string[]) => {
-    try {
-      fs.mkdirSync(path.dirname(sidebarOrderFile), { recursive: true })
-      fs.writeFileSync(sidebarOrderFile, JSON.stringify(order), 'utf-8')
-    } catch { /* ignore */ }
+    const settings = loadSidebarSettings()
+    settings.order = order
+    saveSidebarSettings(settings)
+  })
+
+  ipcMain.on('sidebar:save-hidden', (_event, hidden: string[]) => {
+    const settings = loadSidebarSettings()
+    settings.hidden = hidden
+    saveSidebarSettings(settings)
+  })
+
+  // Sidebar visibility context menu
+  const sidebarItems = [
+    { id: 'notes', label: 'Notes' },
+    { id: 'skills', label: 'Slash Commands' },
+    { id: 'skillbrowser', label: 'Skills' },
+    { id: 'filetree', label: 'File Tree' },
+    { id: 'model', label: 'Switch Model' },
+    { id: 'github', label: 'GitHub' },
+    { id: 'prompthistory', label: 'Prompt History' },
+    { id: 'imagegallery', label: 'Image Gallery' },
+    { id: 'openfolder', label: 'Open Folder' },
+    { id: 'slack', label: 'Share to Slack' },
+  ]
+
+  ipcMain.on('sidebar:visibility-menu', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const settings = loadSidebarSettings()
+    const hidden = new Set(settings.hidden)
+
+    const menu = Menu.buildFromTemplate(sidebarItems.map(item => ({
+      label: item.label,
+      type: 'checkbox' as const,
+      checked: !hidden.has(item.id),
+      click: () => {
+        if (hidden.has(item.id)) {
+          hidden.delete(item.id)
+        } else {
+          hidden.add(item.id)
+        }
+        const newHidden = Array.from(hidden)
+        settings.hidden = newHidden
+        saveSidebarSettings(settings)
+        // Notify the renderer to update visibility
+        if (!win.isDestroyed()) {
+          win.webContents.send('sidebar:visibility-changed', newHidden)
+        }
+      },
+    })))
+    menu.popup({ window: win })
   })
 
   // Save clipboard image to temp file and return the path

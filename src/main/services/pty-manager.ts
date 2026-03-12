@@ -25,6 +25,8 @@ export interface PtySession {
   thinkingTimer: ReturnType<typeof setTimeout> | null
   /** Buffer for accumulating user keystrokes before Enter */
   inputBuffer: string
+  /** Shell tab names for persistence on revive */
+  shellTabNames?: string[]
 }
 
 const sessions = new Map<string, PtySession>()
@@ -344,18 +346,18 @@ export function createShellPty(options: {
 
   shellSessions.set(options.ptyId, session)
 
-  // Route PTY output to the renderer on a separate channel
+  // Route PTY output to the renderer, tagged with shellPtyId
   pty.onData((data) => {
     const win = BrowserWindow.fromId(options.windowId)
     if (win && !win.isDestroyed()) {
-      win.webContents.send('terminal:shell-data', data)
+      win.webContents.send('terminal:shell-data', options.ptyId, data)
     }
   })
 
   pty.onExit(({ exitCode }) => {
     const win = BrowserWindow.fromId(options.windowId)
     if (win && !win.isDestroyed()) {
-      win.webContents.send('terminal:shell-exit', exitCode)
+      win.webContents.send('terminal:shell-exit', options.ptyId, exitCode)
     }
     shellSessions.delete(options.ptyId)
   })
@@ -384,6 +386,14 @@ export function getShellByWindowId(windowId: number): ShellPtySession | undefine
     if (session.windowId === windowId) return session
   }
   return undefined
+}
+
+export function getShellPtyIdsByWindowId(windowId: number): string[] {
+  const ids: string[] = []
+  for (const session of shellSessions.values()) {
+    if (session.windowId === windowId) ids.push(session.ptyId)
+  }
+  return ids
 }
 
 export function destroyAll(): void {

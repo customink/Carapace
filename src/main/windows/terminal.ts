@@ -25,6 +25,7 @@ export interface TerminalWindowOptions {
   ptyId: string
   title?: string
   shellTab?: boolean
+  shellTabNames?: string[]
 }
 
 export function createTerminalWindow(options: TerminalWindowOptions): BrowserWindow {
@@ -54,6 +55,9 @@ export function createTerminalWindow(options: TerminalWindowOptions): BrowserWin
     title: windowTitle,
     shellTab: options.shellTab ? '1' : '0',
   })
+  if (options.shellTabNames && options.shellTabNames.length > 0) {
+    params.set('shellTabNames', JSON.stringify(options.shellTabNames))
+  }
 
   if (process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/terminal.html?${params}`)

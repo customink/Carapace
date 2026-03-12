@@ -28,9 +28,12 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 - Full terminal emulation powered by xterm.js + node-pty
 - Colored titlebar and background tint matching session color
 - Dynamic window titles showing session name and active model
-- Companion shell tab (Claude + Shell tabs in the same window)
+- Multiple shell tabs — click "+" to add new shell tabs alongside Claude
+- Right-click tab titles to rename them; names persist across session revival
+- Drag-and-drop files/folders into the terminal to insert paths
 - Clickable links open in your default browser
 - Right-click context menu (Copy, Paste, Select All, Clear Terminal)
+- Cmd+K to clear terminal
 - Clipboard image paste support
 
 ### Attention Bell
@@ -46,12 +49,15 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 - **Slash Commands** — Quick access to built-in Claude commands
 - **Skills Browser** — Browse and use user/plugin skills
 - **File Tree** — Navigable directory tree of the session's working folder with right-click "Add to prompt"
+- **Image Gallery** — Global image collection with drag-drop import, paste, thumbnails, and right-click context menu (copy, reveal in Finder, remove)
 - **Open Folder** — Open session directory in Finder
 - **Model Selector** — Drawer panel to switch Claude models
 - **GitHub** — Open the session's Git repo in your browser
 - **Prompt History** — Last 20 prompts with one-click re-use, persisted across session revival
 - **Share to Slack** — Compose and send session context to Slack
 - **Custom Snippets** — Create, edit, and manage quick-paste prompt snippets with custom emoji icons
+- Drag-and-drop sidebar icons to reorder; right-click sidebar background to toggle icon visibility
+- Sidebar order and visibility persist across all sessions
 
 ### Session Panel
 - Vibrancy popover showing all active sessions
@@ -124,6 +130,8 @@ Main Process (Node.js)          Preload (bridge)        Renderer (React)
 │   ├── model-selector.ts
 │   ├── file-tree.ts
 │   ├── prompt-history.ts
+│   ├── image-gallery.ts
+│   ├── drawer-base.ts
 │   └── slack-compose.ts
 ├── services/
 │   ├── pty-manager.ts

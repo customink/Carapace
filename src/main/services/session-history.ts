@@ -16,6 +16,7 @@ export interface SessionHistoryEntry {
   startTime: string // ISO string
   color?: string
   label?: string
+  shellTabNames?: string[]
 }
 
 function ensureDir(): void {
@@ -43,13 +44,14 @@ export function recordSession(entry: SessionHistoryEntry): void {
   saveHistory(entries.slice(0, MAX_ENTRIES))
 }
 
-/** Update a history entry's mutable fields (label, color) by ptyId */
-export function updateHistoryEntry(ptyId: string, updates: { label?: string; color?: string }): void {
+/** Update a history entry's mutable fields (label, color, shellTabNames) by ptyId */
+export function updateHistoryEntry(ptyId: string, updates: { label?: string; color?: string; shellTabNames?: string[] }): void {
   const entries = loadHistory()
   const entry = entries.find(e => e.ptyId === ptyId)
   if (!entry) return
   if (updates.label !== undefined) entry.label = updates.label
   if (updates.color !== undefined) entry.color = updates.color
+  if (updates.shellTabNames !== undefined) entry.shellTabNames = updates.shellTabNames
   saveHistory(entries)
 }
 
