@@ -8,6 +8,7 @@ import { toggleSkillsWindow } from '../windows/skills'
 import { toggleSkillBrowserWindow } from '../windows/skill-browser'
 import { toggleModelSelectorWindow } from '../windows/model-selector'
 import { toggleFileTreeWindow } from '../windows/file-tree'
+import { togglePromptHistoryWindow } from '../windows/prompt-history'
 import { IPC_CHANNELS } from '../ipc/channels'
 import { recordSession, updateHistoryEntry } from './session-history'
 import { discoverSessionsAsync, invalidateCache } from './session-discovery'
@@ -237,6 +238,15 @@ export function registerTerminalIpc(): void {
     const session = ptyManager.getByWindowId(win.id)
     if (!session) return
     toggleFileTreeWindow(win, session.color, session.cwd)
+  })
+
+  // Toggle prompt history drawer
+  ipcMain.on('terminal:toggle-prompthistory', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const session = ptyManager.getByWindowId(win.id)
+    if (!session) return
+    togglePromptHistoryWindow(win, session.color, session.ptyId)
   })
 
   // Toggle model selector drawer

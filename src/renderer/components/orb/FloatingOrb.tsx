@@ -91,7 +91,9 @@ export function FloatingOrb() {
       // Label positioned along the same radial line, beyond the mini-orb edge
       const labelDist = ORBIT_RADIUS + MINI_ORB_SIZE / 2 + LABEL_OFFSET
       const name = session.title || session.firstPrompt || 'Claude Code'
-      const displayLabel = session.label || (name[0] || '?').toUpperCase()
+      // Use Array.from to correctly handle multi-byte emoji as first character
+      const firstChar = Array.from(name)[0] || '?'
+      const displayLabel = session.label || firstChar.toUpperCase()
       return {
         id: session.id,
         color: darkenColor(session.color),

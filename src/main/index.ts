@@ -7,6 +7,7 @@ import { focusSessionTerminal } from './services/terminal-focus'
 import * as ptyManager from './services/pty-manager'
 import { showSessionOptionsDialog } from './windows/prompt'
 import { loadHistory, copyNotes } from './services/session-history'
+import { addPrompt as addPromptToHistory, copyPromptHistory } from './services/prompt-history'
 import { loadSnippets, addSnippet, updateSnippet, deleteSnippet } from './services/snippet-store'
 import { showSnippetDialog } from './windows/snippet-dialog'
 import { loadAppSettings, saveAppSettings } from './services/app-settings-store'
@@ -33,6 +34,11 @@ app.whenReady().then(() => {
     const vol = Math.max(0, Math.min(100, chimeSettings.chimeVolume)) / 100
     const { exec } = require('child_process')
     exec(`afplay "${chimeSettings.chimeSound}" -v ${vol}`)
+  })
+
+  // Save user prompts to history
+  ptyManager.onPromptSubmit((ptyId, prompt) => {
+    addPromptToHistory(ptyId, prompt)
   })
 
   // Notify orb when a session starts/stops thinking
@@ -291,6 +297,7 @@ app.whenReady().then(() => {
                 // Simpler: spawn, then copy notes using the history's ptyId as source.
                 const newPtyId = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
                 copyNotes(entry.ptyId, newPtyId)
+                copyPromptHistory(entry.ptyId, newPtyId)
                 spawnClaudeSession(
                   entry.bypass,
                   entry.title || undefined,

@@ -100,6 +100,15 @@ const terminalApi = {
     return () => { ipcRenderer.removeListener('terminal:filetree-closed', handler) }
   },
 
+  // Prompt history
+  togglePromptHistory: () => ipcRenderer.send('terminal:toggle-prompthistory'),
+
+  onPromptHistoryClosed: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('terminal:prompthistory-closed', handler)
+    return () => { ipcRenderer.removeListener('terminal:prompthistory-closed', handler) }
+  },
+
   // Open URL in default browser
   openExternal: (url: string) => ipcRenderer.send('terminal:open-external', url),
 

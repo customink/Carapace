@@ -36,6 +36,8 @@ declare global {
       openGitHub: () => void
       toggleFileTree: () => void
       onFileTreeClosed: (callback: () => void) => () => void
+      togglePromptHistory: () => void
+      onPromptHistoryClosed: (callback: () => void) => () => void
       openExternal: (url: string) => void
       showContextMenu: (hasSelection: boolean) => void
       slackCompose: () => void
@@ -299,14 +301,16 @@ async function init() {
   const skillsBtn = document.getElementById('skills-btn')!
   const skillbrowserBtn = document.getElementById('skillbrowser-btn')!
   const filetreeBtn = document.getElementById('filetree-btn')!
+  const prompthistoryBtn = document.getElementById('prompthistory-btn')!
   const modelBtn = document.getElementById('model-btn')!
   let notesOpen = false
   let skillsOpen = false
   let skillbrowserOpen = false
   let filetreeOpen = false
+  let prompthistoryOpen = false
   let modelSelectorOpen = false
 
-  function closeOtherDrawers(except: 'notes' | 'skills' | 'skillbrowser' | 'filetree' | 'modelselector') {
+  function closeOtherDrawers(except: 'notes' | 'skills' | 'skillbrowser' | 'filetree' | 'prompthistory' | 'modelselector') {
     if (except !== 'notes' && notesOpen) {
       notesOpen = false
       notesBtn.classList.remove('active')
@@ -326,6 +330,11 @@ async function init() {
       filetreeOpen = false
       filetreeBtn.classList.remove('active')
       window.carapaceTerminal.toggleFileTree()
+    }
+    if (except !== 'prompthistory' && prompthistoryOpen) {
+      prompthistoryOpen = false
+      prompthistoryBtn.classList.remove('active')
+      window.carapaceTerminal.togglePromptHistory()
     }
     if (except !== 'modelselector' && modelSelectorOpen) {
       modelSelectorOpen = false
@@ -380,6 +389,18 @@ async function init() {
   window.carapaceTerminal.onFileTreeClosed(() => {
     filetreeOpen = false
     filetreeBtn.classList.remove('active')
+  })
+
+  prompthistoryBtn.addEventListener('click', () => {
+    if (!prompthistoryOpen) closeOtherDrawers('prompthistory')
+    prompthistoryOpen = !prompthistoryOpen
+    prompthistoryBtn.classList.toggle('active', prompthistoryOpen)
+    window.carapaceTerminal.togglePromptHistory()
+  })
+
+  window.carapaceTerminal.onPromptHistoryClosed(() => {
+    prompthistoryOpen = false
+    prompthistoryBtn.classList.remove('active')
   })
 
   modelBtn.addEventListener('click', () => {

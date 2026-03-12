@@ -23,6 +23,8 @@ export interface PtySession {
   /** True when Claude is actively generating a response */
   isThinking: boolean
   thinkingTimer: ReturnType<typeof setTimeout> | null
+  /** Buffer for accumulating user keystrokes before Enter */
+  inputBuffer: string
 }
 
 const sessions = new Map<string, PtySession>()
@@ -43,6 +45,7 @@ const SIGNIFICANT_CHUNK_SIZE = 80 // Chunks smaller than this are likely status 
 
 let onAttentionCallback: ((pid: number) => void) | null = null
 let onThinkingChangeCallback: ((pid: number, isThinking: boolean) => void) | null = null
+let onPromptSubmitCallback: ((ptyId: string, prompt: string) => void) | null = null
 
 export function onAttention(cb: (pid: number) => void): void {
   onAttentionCallback = cb
@@ -50,6 +53,10 @@ export function onAttention(cb: (pid: number) => void): void {
 
 export function onThinkingChange(cb: (pid: number, isThinking: boolean) => void): void {
   onThinkingChangeCallback = cb
+}
+
+export function onPromptSubmit(cb: (ptyId: string, prompt: string) => void): void {
+  onPromptSubmitCallback = cb
 }
 
 export function clearAttention(pid: number): void {
@@ -170,6 +177,7 @@ export function createPty(options: {
     createdAt: Date.now(),
     isThinking: false,
     thinkingTimer: null,
+    inputBuffer: '',
   }
 
   sessions.set(options.ptyId, session)
@@ -230,6 +238,21 @@ export function writeToPty(ptyId: string, data: string): void {
   // Reject: startup period, escape sequence responses (xterm query replies),
   // Shift+Enter (\x1b[13;2u), and bare \r with no visible content.
   const isEnter = data.includes('\r') && !data.includes('\x1b')
+
+  // Buffer keystrokes for prompt history
+  if (isEnter) {
+    const prompt = session.inputBuffer.trim()
+    if (prompt && Date.now() - session.createdAt > STARTUP_GRACE_MS) {
+      onPromptSubmitCallback?.(session.ptyId, prompt)
+    }
+    session.inputBuffer = ''
+  } else if (data === '\x7f') {
+    // Backspace — remove last character
+    session.inputBuffer = session.inputBuffer.slice(0, -1)
+  } else if (!data.includes('\x1b') && data.length > 0) {
+    session.inputBuffer += data
+  }
+
   if (isEnter && Date.now() - session.createdAt > STARTUP_GRACE_MS) {
     session.bellArmed = true
     session.needsAttention = false // clear any stale attention
