@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 const terminalApi = {
   sendData: (data: string) => ipcRenderer.send('terminal:input', data),
@@ -90,6 +90,16 @@ const terminalApi = {
   // GitHub
   getGitHubUrl: () => ipcRenderer.invoke('terminal:github-url'),
   openGitHub: () => ipcRenderer.send('terminal:open-github'),
+  githubContextMenu: () => ipcRenderer.send('terminal:github-context-menu'),
+
+  // Image gallery
+  toggleImageGallery: () => ipcRenderer.send('terminal:toggle-imagegallery'),
+
+  onImageGalleryClosed: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('terminal:imagegallery-closed', handler)
+    return () => { ipcRenderer.removeListener('terminal:imagegallery-closed', handler) }
+  },
 
   // File tree
   toggleFileTree: () => ipcRenderer.send('terminal:toggle-filetree'),
@@ -111,6 +121,13 @@ const terminalApi = {
 
   // Open URL in default browser
   openExternal: (url: string) => ipcRenderer.send('terminal:open-external', url),
+
+  // File path from drag-drop File objects (contextIsolation blocks file.path)
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
+
+  // Sidebar order
+  getSidebarOrder: () => ipcRenderer.invoke('sidebar:get-order'),
+  saveSidebarOrder: (order: string[]) => ipcRenderer.send('sidebar:save-order', order),
 
   // Context menu
   showContextMenu: (hasSelection: boolean) => ipcRenderer.send('terminal:context-menu', hasSelection),

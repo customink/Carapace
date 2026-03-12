@@ -9,6 +9,7 @@ import { toggleSkillBrowserWindow } from '../windows/skill-browser'
 import { toggleModelSelectorWindow } from '../windows/model-selector'
 import { toggleFileTreeWindow } from '../windows/file-tree'
 import { togglePromptHistoryWindow } from '../windows/prompt-history'
+import { toggleImageGalleryWindow } from '../windows/image-gallery'
 import { IPC_CHANNELS } from '../ipc/channels'
 import { recordSession, updateHistoryEntry } from './session-history'
 import { discoverSessionsAsync, invalidateCache } from './session-discovery'
@@ -249,6 +250,15 @@ export function registerTerminalIpc(): void {
     togglePromptHistoryWindow(win, session.color, session.ptyId)
   })
 
+  // Toggle image gallery drawer
+  ipcMain.on('terminal:toggle-imagegallery', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const session = ptyManager.getByWindowId(win.id)
+    if (!session) return
+    toggleImageGalleryWindow(win, session.ptyId, session.color)
+  })
+
   // Toggle model selector drawer
   ipcMain.on('terminal:toggle-modelselector', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -285,8 +295,11 @@ export function registerTerminalIpc(): void {
 
   // Open URL in default browser
   ipcMain.on('terminal:open-external', (_event, url: string) => {
-    if (typeof url === 'string' && (url.startsWith('http://') || url.startsWith('https://'))) {
-      shell.openExternal(url)
+    if (typeof url !== 'string') return
+    // Strip any trailing ANSI escape codes or whitespace
+    const cleaned = url.replace(/[\x1b\u001b]\[[0-9;]*[a-zA-Z]/g, '').replace(/[\x00-\x1f]/g, '').trim()
+    if (cleaned.startsWith('http://') || cleaned.startsWith('https://')) {
+      shell.openExternal(cleaned).catch(() => {})
     }
   })
 
@@ -310,6 +323,89 @@ export function registerTerminalIpc(): void {
       }
       if (browserUrl) shell.openExternal(browserUrl)
     })
+  })
+
+  // GitHub context menu (right-click on GitHub sidebar button)
+  ipcMain.on('terminal:github-context-menu', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const session = ptyManager.getByWindowId(win.id)
+    if (!session) return
+
+    const cwd = session.cwd
+
+    // Gather git info in parallel: remote URL, current branch, and PR status
+    const getRemoteUrl = () => new Promise<string | null>((resolve) => {
+      exec('git remote get-url origin', { cwd, timeout: 3000 }, (err, stdout) => {
+        if (err || !stdout.trim()) { resolve(null); return }
+        const raw = stdout.trim()
+        const sshMatch = raw.match(/git@github\.com:(.+?)(?:\.git)?$/)
+        const httpsMatch = raw.match(/https?:\/\/github\.com\/(.+?)(?:\.git)?$/)
+        if (sshMatch) resolve(`https://github.com/${sshMatch[1]}`)
+        else if (httpsMatch) resolve(`https://github.com/${httpsMatch[1]}`)
+        else resolve(null)
+      })
+    })
+
+    const getBranch = () => new Promise<string | null>((resolve) => {
+      exec('git rev-parse --abbrev-ref HEAD', { cwd, timeout: 3000 }, (err, stdout) => {
+        resolve(err ? null : stdout.trim() || null)
+      })
+    })
+
+    const getPrUrl = () => new Promise<string | null>((resolve) => {
+      exec('gh pr view --json url -q .url', { cwd, timeout: 5000 }, (err, stdout) => {
+        resolve(err ? null : stdout.trim() || null)
+      })
+    })
+
+    Promise.all([getRemoteUrl(), getBranch(), getPrUrl()]).then(([repoUrl, branch, prUrl]) => {
+      if (!repoUrl) return
+
+      const isDefaultBranch = branch === 'main' || branch === 'master'
+
+      const menuItems: Electron.MenuItemConstructorOptions[] = [
+        {
+          label: 'Open Repository',
+          click: () => shell.openExternal(repoUrl),
+        },
+      ]
+
+      if (prUrl) {
+        menuItems.push({
+          label: 'Open Pull Request',
+          click: () => shell.openExternal(prUrl),
+        })
+      }
+
+      if (branch && !isDefaultBranch) {
+        menuItems.push({
+          label: 'Create Pull Request',
+          click: () => shell.openExternal(`${repoUrl}/compare/${encodeURIComponent(branch)}?expand=1`),
+        })
+      }
+
+      const menu = Menu.buildFromTemplate(menuItems)
+      menu.popup({ window: win })
+    })
+  })
+
+  // Sidebar order persistence
+  const sidebarOrderFile = path.join(os.homedir(), '.claude', 'usage-data', 'carapace-sidebar-order.json')
+
+  ipcMain.handle('sidebar:get-order', () => {
+    try {
+      return JSON.parse(fs.readFileSync(sidebarOrderFile, 'utf-8'))
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.on('sidebar:save-order', (_event, order: string[]) => {
+    try {
+      fs.mkdirSync(path.dirname(sidebarOrderFile), { recursive: true })
+      fs.writeFileSync(sidebarOrderFile, JSON.stringify(order), 'utf-8')
+    } catch { /* ignore */ }
   })
 
   // Save clipboard image to temp file and return the path

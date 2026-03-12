@@ -1,24 +1,10 @@
 import { BrowserWindow, ipcMain } from 'electron'
+import {
+  drawerBaseCss, drawerHeaderCss, drawerHeaderHtml, drawerBaseScript,
+  createDrawerWindow, loadDrawerHtml,
+} from './drawer-base'
 
-/** Map of terminal windowId → model-selector BrowserWindow */
 const modelWindows = new Map<number, BrowserWindow>()
-
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const h = hex.replace('#', '')
-  return {
-    r: parseInt(h.substring(0, 2), 16),
-    g: parseInt(h.substring(2, 4), 16),
-    b: parseInt(h.substring(4, 6), 16),
-  }
-}
-
-function tintedBackground(hex: string, tint = 0.08): string {
-  const { r, g, b } = hexToRgb(hex)
-  const tr = Math.round(r * tint).toString(16).padStart(2, '0')
-  const tg = Math.round(g * tint).toString(16).padStart(2, '0')
-  const tb = Math.round(b * tint).toString(16).padStart(2, '0')
-  return `#${tr}${tg}${tb}`
-}
 
 const PANEL_WIDTH = 300
 
@@ -39,79 +25,24 @@ const MODELS: ModelDef[] = [
 ]
 
 export function toggleModelSelectorWindow(parentWin: BrowserWindow, color: string): boolean {
-  const existing = modelWindows.get(parentWin.id)
-  if (existing && !existing.isDestroyed()) {
-    existing.close()
-    modelWindows.delete(parentWin.id)
-    return false
-  }
-
-  const parentBounds = parentWin.getBounds()
-  const bgColor = tintedBackground(color, 0.06)
   const channelType = `model-type-${parentWin.id}`
 
-  const win = new BrowserWindow({
+  const result = createDrawerWindow({
+    parentWin,
     width: PANEL_WIDTH,
-    height: parentBounds.height,
-    x: parentBounds.x - PANEL_WIDTH,
-    y: parentBounds.y,
-    frame: false,
-    transparent: false,
-    backgroundColor: bgColor,
-    hasShadow: true,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    skipTaskbar: true,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-    },
+    color,
+    closedChannel: 'terminal:modelselector-closed',
+    windowMap: modelWindows,
+    ipcChannels: [channelType],
   })
 
-  modelWindows.set(parentWin.id, win)
+  if (!result) return false
+  const { win, bgColor, headerBg } = result
 
-  // When a model is selected, forward the /model command to the terminal
   ipcMain.on(channelType, (_e, command: string) => {
     if (!parentWin.isDestroyed()) {
       parentWin.webContents.send('terminal:type-command', command)
     }
-  })
-
-  // Follow parent
-  const updatePosition = () => {
-    if (win.isDestroyed()) return
-    const b = parentWin.getBounds()
-    win.setBounds({
-      x: b.x - PANEL_WIDTH,
-      y: b.y,
-      width: PANEL_WIDTH,
-      height: b.height,
-    })
-  }
-
-  parentWin.on('move', updatePosition)
-  parentWin.on('resize', updatePosition)
-  parentWin.on('minimize', () => { if (!win.isDestroyed()) win.hide() })
-  parentWin.on('restore', () => { if (!win.isDestroyed()) win.show() })
-
-  const cleanup = () => {
-    ipcMain.removeAllListeners(channelType)
-    parentWin.removeListener('move', updatePosition)
-    parentWin.removeListener('resize', updatePosition)
-    modelWindows.delete(parentWin.id)
-  }
-
-  win.on('closed', () => {
-    cleanup()
-    if (!parentWin.isDestroyed()) {
-      parentWin.webContents.send('terminal:modelselector-closed')
-    }
-  })
-
-  parentWin.on('closed', () => {
-    if (!win.isDestroyed()) win.close()
-    cleanup()
   })
 
   const accentColor = color
@@ -120,39 +51,13 @@ export function toggleModelSelectorWindow(parentWin: BrowserWindow, color: strin
   const html = `<!DOCTYPE html>
 <html>
 <head><style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body {
-    width: 100%; height: 100%;
-    background: ${bgColor};
-    overflow: hidden;
-  }
-  body {
-    display: flex;
-    flex-direction: column;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
-  }
-  #header {
-    -webkit-app-region: drag;
-    height: 38px;
-    display: flex;
-    align-items: center;
-    padding: 0 14px;
-    font-size: 11px;
-    font-weight: 600;
-    color: rgba(255,255,255,0.55);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    flex-shrink: 0;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-    background: ${tintedBackground(color, 0.1)};
-  }
+  ${drawerBaseCss(bgColor)}
+  ${drawerHeaderCss(headerBg)}
   #list {
     flex: 1;
     overflow-y: auto;
     padding: 8px 0;
   }
-  #list::-webkit-scrollbar { width: 5px; }
-  #list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
   .model {
     padding: 10px 14px;
     cursor: pointer;
@@ -228,7 +133,7 @@ export function toggleModelSelectorWindow(parentWin: BrowserWindow, color: strin
   }
 </style></head>
 <body>
-  <div id="header">Switch Model</div>
+  ${drawerHeaderHtml('Switch Model')}
   <div id="list"></div>
   <div id="footer">
     <button id="generate-btn" disabled>Paste /model Command</button>
@@ -275,16 +180,12 @@ export function toggleModelSelectorWindow(parentWin: BrowserWindow, color: strin
 
     render();
 
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') window.close();
-    });
+    ${drawerBaseScript()}
   </script>
 </body>
 </html>`
 
-  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-  win.once('ready-to-show', () => win.show())
-
+  loadDrawerHtml(win, html)
   return true
 }
 

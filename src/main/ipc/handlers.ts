@@ -90,18 +90,25 @@ export function startSessionMonitor(): void {
     scheduleBroadcast()
 
     // Direct completion detection — bypasses broadcast throttle and discovery cache.
-    // The monitor already parsed the JSONL and has the completionCount.
+    // The monitor already parsed the JSONL and has the completionCount + stopReason.
     const fileKey = `${update.projectPath}:${update.sessionId}`
     const count = update.parsed.completionCount || 0
+    const stopReason = update.parsed.stopReason
     const hasPrevious = directCompletionCounts.has(fileKey)
     const prevCount = directCompletionCounts.get(fileKey) || 0
 
+    const ptySessions = ptyManager.getByEncodedCwd(update.projectEncoded)
+
     if (count > prevCount && hasPrevious) {
-      // New completion detected — find PTY session by encoded CWD match
-      const ptySessions = ptyManager.getByEncodedCwd(update.projectEncoded)
+      // end_turn completion detected — Claude is done, fire bell + clear spinner
       for (const ps of ptySessions) {
         ptyManager.fireBell(ps.pid)
         ptyManager.clearThinking(ps.pid)
+      }
+    } else if (stopReason === 'tool_use') {
+      // Claude is executing a tool — re-arm spinner if idle timeout cleared it
+      for (const ps of ptySessions) {
+        ptyManager.rearmThinking(ps.pid)
       }
     }
     directCompletionCounts.set(fileKey, count)
@@ -139,9 +146,12 @@ function startBellPolling(): void {
           const prevCount = pollCompletionCounts.get(fileKey) || 0
 
           if (count > prevCount && pollCompletionCounts.has(fileKey)) {
-            // New completion detected by poll — fire bell if the watcher didn't already
+            // end_turn completion detected by poll — fire bell if the watcher didn't already
             ptyManager.fireBell(session.pid)
             ptyManager.clearThinking(session.pid)
+          } else if (parsed.stopReason === 'tool_use') {
+            // Claude is executing a tool — re-arm spinner
+            ptyManager.rearmThinking(session.pid)
           }
           pollCompletionCounts.set(fileKey, count)
         }

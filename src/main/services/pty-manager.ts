@@ -86,7 +86,10 @@ export function fireBell(pid: number): void {
 
 /**
  * Clear thinking state for a session.
- * Called from handlers.ts when JSONL completion is detected.
+ * Called from handlers.ts when JSONL shows end_turn,
+ * and from the idle-timeout fallback in onData.
+ * Does NOT fire the bell — bell is only fired from handlers.ts
+ * on end_turn completion to avoid false triggers during tool_use pauses.
  */
 export function clearThinking(pid: number): void {
   const session = getByPid(pid)
@@ -98,6 +101,24 @@ export function clearThinking(pid: number): void {
   }
   session.isThinking = false
   onThinkingChangeCallback?.(session.pid, false)
+}
+
+/**
+ * Re-arm thinking state for a session.
+ * Called from handlers.ts when JSONL shows tool_use stop_reason,
+ * indicating Claude is still actively working even if the idle timeout cleared the spinner.
+ */
+export function rearmThinking(pid: number): void {
+  const session = getByPid(pid)
+  if (!session || session.isThinking) return
+
+  // Cancel any pending idle timer
+  if (session.thinkingTimer) {
+    clearTimeout(session.thinkingTimer)
+    session.thinkingTimer = null
+  }
+  session.isThinking = true
+  onThinkingChangeCallback?.(session.pid, true)
 }
 
 let cachedClaudePath: string | null = null
@@ -205,10 +226,7 @@ export function createPty(options: {
       if (session.thinkingTimer) clearTimeout(session.thinkingTimer)
       session.thinkingTimer = setTimeout(() => {
         session.thinkingTimer = null
-        if (session.isThinking) {
-          session.isThinking = false
-          onThinkingChangeCallback?.(session.pid, false)
-        }
+        clearThinking(session.pid)
       }, IDLE_THRESHOLD_MS)
     }
   })

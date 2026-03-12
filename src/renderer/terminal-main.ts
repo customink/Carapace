@@ -34,11 +34,17 @@ declare global {
       onSnippetsUpdated: (callback: (snippets: Snippet[]) => void) => () => void
       getGitHubUrl: () => Promise<string | null>
       openGitHub: () => void
+      githubContextMenu: () => void
+      toggleImageGallery: () => void
+      onImageGalleryClosed: (callback: () => void) => () => void
       toggleFileTree: () => void
       onFileTreeClosed: (callback: () => void) => () => void
       togglePromptHistory: () => void
       onPromptHistoryClosed: (callback: () => void) => () => void
       openExternal: (url: string) => void
+      getPathForFile: (file: File) => string
+      getSidebarOrder: () => Promise<string[] | null>
+      saveSidebarOrder: (order: string[]) => void
       showContextMenu: (hasSelection: boolean) => void
       slackCompose: () => void
       onTitleUpdated: (callback: (title: string) => void) => () => void
@@ -85,6 +91,11 @@ function setupCopyPaste(terminal: Terminal, sendData: (data: string) => void) {
       return true
     }
 
+    if (event.metaKey && event.key === 'k') {
+      terminal.clear()
+      return false
+    }
+
     if (event.metaKey && event.key === 'v') {
       // preventDefault stops the browser from also firing a paste event,
       // which xterm would pick up and send a second copy via onData
@@ -106,24 +117,50 @@ function setupContextMenu(terminal: Terminal, element: HTMLElement) {
   })
 }
 
-function setupDragDrop(element: HTMLElement, sendData: (data: string) => void, focusFn: () => void) {
-  element.addEventListener('dragover', (e) => {
+function setupDragDrop(
+  getSendData: () => (data: string) => void,
+  getFocus: () => () => void,
+) {
+  const overlay = document.getElementById('drop-overlay')!
+  let dragCounter = 0
+
+  window.addEventListener('dragenter', (e) => {
+    e.preventDefault()
+    if (e.dataTransfer?.types.includes('Files')) {
+      dragCounter++
+      overlay.classList.add('visible')
+    }
+  }, true)
+
+  window.addEventListener('dragleave', (e) => {
+    e.preventDefault()
+    dragCounter--
+    if (dragCounter <= 0) { dragCounter = 0; overlay.classList.remove('visible') }
+  }, true)
+
+  window.addEventListener('dragover', (e) => {
     e.preventDefault()
     e.stopPropagation()
-  })
-  element.addEventListener('drop', (e) => {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+  }, true)
+
+  window.addEventListener('drop', (e) => {
     e.preventDefault()
     e.stopPropagation()
+    dragCounter = 0
+    overlay.classList.remove('visible')
     if (!e.dataTransfer?.files.length) return
     const paths = Array.from(e.dataTransfer.files)
-      .map(f => (f as any).path as string)
+      .map(f => {
+        try { return window.carapaceTerminal.getPathForFile(f) } catch { return '' }
+      })
       .filter(Boolean)
     if (paths.length > 0) {
       const escaped = paths.map(p => p.includes(' ') ? `"${p}"` : p).join(' ')
-      sendData(escaped)
+      getSendData()(escaped)
     }
-    focusFn()
-  })
+    getFocus()()
+  }, true)
 }
 
 async function init() {
@@ -149,6 +186,81 @@ async function init() {
   const sidebar = document.getElementById('sidebar')!
   sidebar.style.backgroundColor = tintedBackground(color, 0.1)
 
+  // ─── Sidebar button reordering ───
+  const reorderableBtns = Array.from(sidebar.querySelectorAll('.sidebar-reorderable')) as HTMLElement[]
+  const snippetsSection = document.getElementById('custom-snippets')!
+  const addSnippetBtn = document.getElementById('add-snippet-btn')!
+
+  // Apply saved order
+  const savedOrder = await window.carapaceTerminal.getSidebarOrder()
+  if (savedOrder && Array.isArray(savedOrder)) {
+    const byId = new Map(reorderableBtns.map(btn => [btn.dataset.sidebarId!, btn]))
+    // Insert in saved order before the snippets section
+    for (const id of savedOrder) {
+      const btn = byId.get(id)
+      if (btn) sidebar.insertBefore(btn, snippetsSection)
+    }
+    // Any buttons not in saved order go before snippets too
+    for (const btn of reorderableBtns) {
+      if (!savedOrder.includes(btn.dataset.sidebarId!)) {
+        sidebar.insertBefore(btn, snippetsSection)
+      }
+    }
+  }
+
+  // Drag-and-drop reordering
+  let draggedBtn: HTMLElement | null = null
+  for (const btn of reorderableBtns) {
+    btn.draggable = true
+
+    btn.addEventListener('dragstart', (e) => {
+      draggedBtn = btn
+      btn.classList.add('dragging')
+      e.dataTransfer!.effectAllowed = 'move'
+      e.dataTransfer!.setData('text/plain', btn.dataset.sidebarId!)
+    })
+
+    btn.addEventListener('dragend', () => {
+      btn.classList.remove('dragging')
+      sidebar.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'))
+      draggedBtn = null
+    })
+
+    btn.addEventListener('dragover', (e) => {
+      if (!draggedBtn || draggedBtn === btn) return
+      e.preventDefault()
+      e.dataTransfer!.dropEffect = 'move'
+      btn.classList.add('drag-over')
+    })
+
+    btn.addEventListener('dragleave', () => {
+      btn.classList.remove('drag-over')
+    })
+
+    btn.addEventListener('drop', (e) => {
+      e.preventDefault()
+      btn.classList.remove('drag-over')
+      if (!draggedBtn || draggedBtn === btn) return
+
+      // Reorder in DOM
+      const allBtns = Array.from(sidebar.querySelectorAll('.sidebar-reorderable')) as HTMLElement[]
+      const fromIdx = allBtns.indexOf(draggedBtn)
+      const toIdx = allBtns.indexOf(btn)
+      if (fromIdx < 0 || toIdx < 0) return
+
+      if (fromIdx < toIdx) {
+        sidebar.insertBefore(draggedBtn, btn.nextSibling)
+      } else {
+        sidebar.insertBefore(draggedBtn, btn)
+      }
+
+      // Save new order
+      const newOrder = Array.from(sidebar.querySelectorAll('.sidebar-reorderable'))
+        .map(el => (el as HTMLElement).dataset.sidebarId!)
+      window.carapaceTerminal.saveSidebarOrder(newOrder)
+    })
+  }
+
   // Tab bar background
   const tabbar = document.getElementById('tabbar')!
   tabbar.style.backgroundColor = tintedBackground(color, 0.12)
@@ -162,6 +274,13 @@ async function init() {
     selectionBackground: color + '40',
   }
 
+  // ─── Link handler for OSC 8 hyperlinks (used by Claude Code) ───
+  const linkHandler = {
+    activate: (_e: MouseEvent, url: string) => {
+      window.carapaceTerminal.openExternal(url)
+    },
+  }
+
   // ─── Claude terminal ───
   const claudeFit = new FitAddon()
   const claudeTerminal = new Terminal({
@@ -171,6 +290,7 @@ async function init() {
     fontFamily: "'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
     theme,
     allowProposedApi: true,
+    linkHandler,
   })
 
   claudeTerminal.loadAddon(claudeFit)
@@ -194,7 +314,6 @@ async function init() {
 
   setupCopyPaste(claudeTerminal, (data) => window.carapaceTerminal.sendData(data))
   setupContextMenu(claudeTerminal, document.getElementById('terminal')!)
-  setupDragDrop(document.getElementById('terminal')!, (data) => window.carapaceTerminal.sendData(data), () => claudeTerminal.focus())
 
   // Paste images from clipboard (text paste is handled by setupCopyPaste)
   document.addEventListener('paste', async (e) => {
@@ -234,6 +353,7 @@ async function init() {
       fontFamily: "'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
       theme,
       allowProposedApi: true,
+      linkHandler,
     })
 
     shellTerminal.loadAddon(shellFit)
@@ -254,7 +374,7 @@ async function init() {
 
     setupCopyPaste(shellTerminal, (data) => window.carapaceTerminal.shellSendData(data))
     setupContextMenu(shellTerminal, document.getElementById('shell-terminal')!)
-    setupDragDrop(document.getElementById('shell-terminal')!, (data) => window.carapaceTerminal.shellSendData(data), () => shellTerminal!.focus())
+    // (drag-drop handled at window level below)
 
     // Tab switching
     const claudeTab = document.getElementById('tab-claude')!
@@ -296,21 +416,33 @@ async function init() {
     })
   }
 
+  // ─── Drag-drop files into terminal (window-level capture) ───
+  setupDragDrop(
+    () => activeTab === 'shell' && shellTerminal
+      ? (data: string) => window.carapaceTerminal.shellSendData(data)
+      : (data: string) => window.carapaceTerminal.sendData(data),
+    () => activeTab === 'shell' && shellTerminal
+      ? () => shellTerminal!.focus()
+      : () => claudeTerminal.focus(),
+  )
+
   // ─── Sidebar drawers (only one open at a time) ───
   const notesBtn = document.getElementById('notes-btn')!
   const skillsBtn = document.getElementById('skills-btn')!
   const skillbrowserBtn = document.getElementById('skillbrowser-btn')!
+  const imagegalleryBtn = document.getElementById('imagegallery-btn')!
   const filetreeBtn = document.getElementById('filetree-btn')!
   const prompthistoryBtn = document.getElementById('prompthistory-btn')!
   const modelBtn = document.getElementById('model-btn')!
   let notesOpen = false
   let skillsOpen = false
   let skillbrowserOpen = false
+  let imagegalleryOpen = false
   let filetreeOpen = false
   let prompthistoryOpen = false
   let modelSelectorOpen = false
 
-  function closeOtherDrawers(except: 'notes' | 'skills' | 'skillbrowser' | 'filetree' | 'prompthistory' | 'modelselector') {
+  function closeOtherDrawers(except: 'notes' | 'skills' | 'skillbrowser' | 'imagegallery' | 'filetree' | 'prompthistory' | 'modelselector') {
     if (except !== 'notes' && notesOpen) {
       notesOpen = false
       notesBtn.classList.remove('active')
@@ -325,6 +457,11 @@ async function init() {
       skillbrowserOpen = false
       skillbrowserBtn.classList.remove('active')
       window.carapaceTerminal.toggleSkillBrowser()
+    }
+    if (except !== 'imagegallery' && imagegalleryOpen) {
+      imagegalleryOpen = false
+      imagegalleryBtn.classList.remove('active')
+      window.carapaceTerminal.toggleImageGallery()
     }
     if (except !== 'filetree' && filetreeOpen) {
       filetreeOpen = false
@@ -377,6 +514,18 @@ async function init() {
   window.carapaceTerminal.onSkillBrowserClosed(() => {
     skillbrowserOpen = false
     skillbrowserBtn.classList.remove('active')
+  })
+
+  imagegalleryBtn.addEventListener('click', () => {
+    if (!imagegalleryOpen) closeOtherDrawers('imagegallery')
+    imagegalleryOpen = !imagegalleryOpen
+    imagegalleryBtn.classList.toggle('active', imagegalleryOpen)
+    window.carapaceTerminal.toggleImageGallery()
+  })
+
+  window.carapaceTerminal.onImageGalleryClosed(() => {
+    imagegalleryOpen = false
+    imagegalleryBtn.classList.remove('active')
   })
 
   filetreeBtn.addEventListener('click', () => {
@@ -462,6 +611,10 @@ async function init() {
   })
   githubBtn.addEventListener('click', () => {
     window.carapaceTerminal.openGitHub()
+  })
+  githubBtn.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    window.carapaceTerminal.githubContextMenu()
   })
 
   // ─── Slack ───

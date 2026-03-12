@@ -33,11 +33,11 @@
     }
     #tabbar {
       display: none;
-      height: 32px;
+      height: 40px;
       flex-shrink: 0;
       align-items: stretch;
       font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 500;
       color: rgba(255, 255, 255, 0.7);
       user-select: none;
@@ -51,11 +51,11 @@
       -webkit-app-region: no-drag;
       display: flex;
       align-items: center;
-      padding: 0 16px;
+      padding: 0 24px;
       cursor: pointer;
       border-bottom: 2px solid transparent;
       transition: all 0.15s ease;
-      gap: 6px;
+      gap: 8px;
     }
     .tab:hover {
       color: rgba(255, 255, 255, 0.9);
@@ -126,6 +126,34 @@
       background: rgba(255, 255, 255, 0.1);
       color: rgba(255, 255, 255, 0.9);
     }
+    .sidebar-btn.dragging {
+      opacity: 0.3;
+    }
+    .sidebar-btn.drag-over {
+      box-shadow: 0 -2px 0 0 rgba(255,255,255,0.4);
+    }
+
+    /* ─── Drop overlay ─── */
+    #drop-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    #drop-overlay.visible { display: flex; }
+    #drop-overlay-inner {
+      border: 2px dashed rgba(255,255,255,0.4);
+      border-radius: 12px;
+      padding: 24px 36px;
+      color: rgba(255,255,255,0.7);
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+    }
 
     /* ─── Terminal container ─── */
     #terminal-container {
@@ -157,51 +185,58 @@
   </div>
   <div id="main-area">
     <div id="sidebar">
-      <button id="notes-btn" class="sidebar-btn" title="Notes">
+      <button id="notes-btn" class="sidebar-btn sidebar-reorderable" data-sidebar-id="notes" title="Notes">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M3 2.5h10a.5.5 0 0 1 .5.5v10a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5z" stroke="currentColor" stroke-width="1.2"/>
           <path d="M5 5.5h6M5 8h6M5 10.5h3.5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
         </svg>
       </button>
-      <button id="skills-btn" class="sidebar-btn" title="Slash Commands">
+      <button id="skills-btn" class="sidebar-btn sidebar-reorderable" data-sidebar-id="skills" title="Slash Commands">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M10 2.5L6 13.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
         </svg>
       </button>
-      <button id="skillbrowser-btn" class="sidebar-btn" title="Skills">
+      <button id="skillbrowser-btn" class="sidebar-btn sidebar-reorderable" data-sidebar-id="skillbrowser" title="Skills">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M8 1.5l1.8 3.7 4 .6-2.9 2.8.7 4L8 10.8 4.4 12.6l.7-4L2.2 5.8l4-.6L8 1.5z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
         </svg>
       </button>
-      <button id="filetree-btn" class="sidebar-btn" title="File Tree">
+      <button id="filetree-btn" class="sidebar-btn sidebar-reorderable" data-sidebar-id="filetree" title="File Tree">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M6 3h7M6 6.5h7M6 10h5" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
           <path d="M3 3h0M3 6.5h0M3 10h0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
           <path d="M2 12.5h12" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity="0.4"/>
         </svg>
       </button>
-      <button id="openfolder-btn" class="sidebar-btn" title="Open Folder">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M2 4.5v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-6a1 1 0 0 0-1-1H8L6.5 3.5H3a1 1 0 0 0-1 1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-        </svg>
-      </button>
-      <button id="model-btn" class="sidebar-btn" title="Switch Model">
+      <button id="model-btn" class="sidebar-btn sidebar-reorderable" data-sidebar-id="model" title="Switch Model">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path d="M8 2v12M4 6l4-4 4 4M4 10l4 4 4-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </button>
-      <button id="github-btn" class="sidebar-btn" title="Open GitHub Repo" style="display:none">
+      <button id="github-btn" class="sidebar-btn sidebar-reorderable" data-sidebar-id="github" title="Open GitHub Repo" style="display:none">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
           <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
         </svg>
       </button>
-      <button id="prompthistory-btn" class="sidebar-btn" title="Prompt History">
+      <button id="prompthistory-btn" class="sidebar-btn sidebar-reorderable" data-sidebar-id="prompthistory" title="Prompt History">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.2"/>
           <path d="M8 4.5v4l2.5 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
       </button>
-      <button id="slack-btn" class="sidebar-btn" title="Share to Slack">
+      <button id="imagegallery-btn" class="sidebar-btn sidebar-reorderable" data-sidebar-id="imagegallery" title="Image Gallery">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" stroke-width="1.1"/>
+          <circle cx="5.5" cy="6.5" r="1.2" stroke="currentColor" stroke-width="1"/>
+          <path d="M2 10.5l3-3 2.5 2.5L10 7.5l4 4" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button id="openfolder-btn" class="sidebar-btn sidebar-reorderable" data-sidebar-id="openfolder" title="Open Folder">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <path d="M2 4.5v8a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-6a1 1 0 0 0-1-1H8L6.5 3.5H3a1 1 0 0 0-1 1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button id="slack-btn" class="sidebar-btn sidebar-reorderable" data-sidebar-id="slack" title="Share to Slack">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
           <path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313z" fill="currentColor" opacity="0.9"/>
           <path d="M8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312z" fill="currentColor" opacity="0.7"/>
@@ -221,6 +256,7 @@
       <div id="shell-terminal" class="terminal-pane"></div>
     </div>
   </div>
+  <div id="drop-overlay"><div id="drop-overlay-inner">Drop files here</div></div>
   <script type="module" src="./terminal-main.ts"></script>
 </body>
 </html>

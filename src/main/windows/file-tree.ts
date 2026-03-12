@@ -1,30 +1,17 @@
-import { BrowserWindow, ipcMain } from 'electron'
-import * as fs from 'fs'
+import { BrowserWindow, ipcMain, shell } from 'electron'
+import { exec } from 'child_process'
+import * as fs from 'fs/promises'
 import * as path from 'path'
+import {
+  drawerBaseCss, drawerHeaderCss, drawerHeaderHtml, drawerBaseScript,
+  drawerSearchCss, drawerSearchHtml, drawerSearchScript,
+  createDrawerWindow, loadDrawerHtml,
+} from './drawer-base'
 
-/** Map of terminal windowId → file-tree BrowserWindow */
 const treeWindows = new Map<number, BrowserWindow>()
-
-function hexToRgb(hex: string): { r: number; g: number; b: number } {
-  const h = hex.replace('#', '')
-  return {
-    r: parseInt(h.substring(0, 2), 16),
-    g: parseInt(h.substring(2, 4), 16),
-    b: parseInt(h.substring(4, 6), 16),
-  }
-}
-
-function tintedBackground(hex: string, tint = 0.08): string {
-  const { r, g, b } = hexToRgb(hex)
-  const tr = Math.round(r * tint).toString(16).padStart(2, '0')
-  const tg = Math.round(g * tint).toString(16).padStart(2, '0')
-  const tb = Math.round(b * tint).toString(16).padStart(2, '0')
-  return `#${tr}${tg}${tb}`
-}
 
 const PANEL_WIDTH = 300
 
-/** Hidden dirs/files to skip */
 const IGNORED = new Set([
   'node_modules', '.git', '.DS_Store', '__pycache__', '.next', '.nuxt',
   'dist', 'out', '.cache', '.turbo', 'coverage', '.nyc_output',
@@ -37,20 +24,24 @@ interface DirEntry {
   isDir: boolean
 }
 
-function readDir(dirPath: string): DirEntry[] {
+function shouldSkip(name: string, showHidden: boolean): boolean {
+  if (IGNORED.has(name)) return true
+  if (!showHidden && name.startsWith('.') && name !== '.env') return true
+  return false
+}
+
+async function readDir(dirPath: string, showHidden = false): Promise<DirEntry[]> {
   try {
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true })
+    const entries = await fs.readdir(dirPath, { withFileTypes: true })
     const results: DirEntry[] = []
     for (const entry of entries) {
-      if (IGNORED.has(entry.name)) continue
-      if (entry.name.startsWith('.') && entry.name !== '.env') continue
+      if (shouldSkip(entry.name, showHidden)) continue
       results.push({
         name: entry.name,
         path: path.join(dirPath, entry.name),
         isDir: entry.isDirectory(),
       })
     }
-    // Sort: dirs first, then alphabetically
     results.sort((a, b) => {
       if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
       return a.name.localeCompare(b.name)
@@ -61,89 +52,96 @@ function readDir(dirPath: string): DirEntry[] {
   }
 }
 
-export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cwd: string): boolean {
-  const existing = treeWindows.get(parentWin.id)
-  if (existing && !existing.isDestroyed()) {
-    existing.close()
-    treeWindows.delete(parentWin.id)
-    return false
+/** Recursively search for files/folders matching a query under dirPath (async, depth-limited) */
+async function searchDir(dirPath: string, query: string, showHidden = false, maxResults = 80, maxDepth = 8): Promise<DirEntry[]> {
+  const results: DirEntry[] = []
+  const q = query.toLowerCase()
+
+  async function walk(dir: string, depth: number) {
+    if (results.length >= maxResults || depth > maxDepth) return
+    let entries: import('fs').Dirent[]
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    const subdirs: string[] = []
+    for (const entry of entries) {
+      if (results.length >= maxResults) return
+      if (shouldSkip(entry.name, showHidden)) continue
+      const fullPath = path.join(dir, entry.name)
+      if (entry.name.toLowerCase().includes(q)) {
+        results.push({ name: entry.name, path: fullPath, isDir: entry.isDirectory() })
+      }
+      if (entry.isDirectory()) {
+        subdirs.push(fullPath)
+      }
+    }
+    for (const sub of subdirs) {
+      if (results.length >= maxResults) return
+      await walk(sub, depth + 1)
+    }
   }
 
-  const parentBounds = parentWin.getBounds()
-  const bgColor = tintedBackground(color, 0.06)
-  const channelReadDir = `filetree-readdir-${parentWin.id}`
-  const channelAddToPrompt = `filetree-addprompt-${parentWin.id}`
+  await walk(dirPath, 0)
+  results.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+    return a.name.localeCompare(b.name)
+  })
+  return results
+}
 
-  const win = new BrowserWindow({
+export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cwd: string): boolean {
+  const channelReadDir = `filetree-readdir-${parentWin.id}`
+  const channelSearch = `filetree-search-${parentWin.id}`
+  const channelAddToPrompt = `filetree-addprompt-${parentWin.id}`
+  const channelOpenVSCode = `filetree-openvscode-${parentWin.id}`
+  const channelOpenFinder = `filetree-openfinder-${parentWin.id}`
+
+  const result = createDrawerWindow({
+    parentWin,
     width: PANEL_WIDTH,
-    height: parentBounds.height,
-    x: parentBounds.x - PANEL_WIDTH,
-    y: parentBounds.y,
-    frame: false,
-    transparent: false,
-    backgroundColor: bgColor,
-    hasShadow: true,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    skipTaskbar: true,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-    },
+    color,
+    closedChannel: 'terminal:filetree-closed',
+    windowMap: treeWindows,
+    ipcChannels: [channelAddToPrompt, channelOpenVSCode, channelOpenFinder],
+    ipcHandlers: [channelReadDir, channelSearch],
   })
 
-  treeWindows.set(parentWin.id, win)
+  if (!result) return false
+  const { win, bgColor, headerBg } = result
 
-  // IPC: read directory contents on demand
-  ipcMain.handle(channelReadDir, (_e, dirPath: string) => {
-    // Security: only allow reading within cwd
+  ipcMain.handle(channelReadDir, async (_e, dirPath: string, showHidden: boolean) => {
     const resolved = path.resolve(dirPath)
     if (!resolved.startsWith(cwd)) return []
-    return readDir(resolved)
+    return await readDir(resolved, !!showHidden)
   })
 
-  // IPC: add file/folder path to prompt
+  ipcMain.handle(channelSearch, async (_e, query: string, showHidden: boolean) => {
+    if (!query || query.length < 2) return []
+    return await searchDir(cwd, query, !!showHidden)
+  })
+
   ipcMain.on(channelAddToPrompt, (_e, filePath: string) => {
     if (!parentWin.isDestroyed()) {
       parentWin.webContents.send('terminal:type-command', filePath + ' ')
     }
   })
 
-  const updatePosition = () => {
-    if (win.isDestroyed()) return
-    const b = parentWin.getBounds()
-    win.setBounds({
-      x: b.x - PANEL_WIDTH,
-      y: b.y,
-      width: PANEL_WIDTH,
-      height: b.height,
-    })
-  }
-
-  parentWin.on('move', updatePosition)
-  parentWin.on('resize', updatePosition)
-  parentWin.on('minimize', () => { if (!win.isDestroyed()) win.hide() })
-  parentWin.on('restore', () => { if (!win.isDestroyed()) win.show() })
-
-  const cleanup = () => {
-    ipcMain.removeHandler(channelReadDir)
-    ipcMain.removeAllListeners(channelAddToPrompt)
-    parentWin.removeListener('move', updatePosition)
-    parentWin.removeListener('resize', updatePosition)
-    treeWindows.delete(parentWin.id)
-  }
-
-  win.on('closed', () => {
-    cleanup()
-    if (!parentWin.isDestroyed()) {
-      parentWin.webContents.send('terminal:filetree-closed')
-    }
+  ipcMain.on(channelOpenVSCode, (_e, filePath: string) => {
+    const resolved = path.resolve(filePath)
+    if (!resolved.startsWith(cwd)) return
+    exec(`code ${JSON.stringify(resolved)}`, { timeout: 5000 })
   })
 
-  parentWin.on('closed', () => {
-    if (!win.isDestroyed()) win.close()
-    cleanup()
+  ipcMain.on(channelOpenFinder, (_e, filePath: string, isDir: boolean) => {
+    const resolved = path.resolve(filePath)
+    if (!resolved.startsWith(cwd)) return
+    if (isDir) {
+      shell.openPath(resolved)
+    } else {
+      shell.showItemInFolder(resolved)
+    }
   })
 
   const accentColor = color
@@ -152,40 +150,24 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
   const html = `<!DOCTYPE html>
 <html>
 <head><style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body {
-    width: 100%; height: 100%;
-    background: ${bgColor};
-    overflow: hidden;
-  }
-  body {
-    display: flex;
-    flex-direction: column;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
-  }
-  #header {
-    -webkit-app-region: drag;
-    height: 38px;
-    display: flex;
-    align-items: center;
-    padding: 0 14px;
-    font-size: 11px;
-    font-weight: 600;
-    color: rgba(255,255,255,0.55);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    flex-shrink: 0;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
-    background: ${tintedBackground(color, 0.1)};
-  }
+  ${drawerBaseCss(bgColor)}
+  ${drawerHeaderCss(headerBg)}
+  ${drawerSearchCss(accentColor)}
   #tree {
     flex: 1;
     overflow-y: auto;
     padding: 4px 0;
+    margin-top: 6px;
     -webkit-app-region: no-drag;
   }
-  #tree::-webkit-scrollbar { width: 5px; }
-  #tree::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+  #search-results {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+    margin-top: 6px;
+    -webkit-app-region: no-drag;
+    display: none;
+  }
   .node {
     display: flex;
     align-items: center;
@@ -224,15 +206,28 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
   .node .name { overflow: hidden; text-overflow: ellipsis; }
   .node.dir .name { font-weight: 500; }
   .node.file .name { color: rgba(255,255,255,0.65); }
+  .node .rel-path {
+    font-size: 10px;
+    color: rgba(255,255,255,0.25);
+    margin-left: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .children { display: none; }
   .children.open { display: block; }
+  .empty {
+    padding: 20px 14px;
+    font-size: 12px;
+    color: rgba(255,255,255,0.2);
+    text-align: center;
+  }
   .ctx-menu {
     position: fixed;
     background: rgba(30,30,50,0.96);
     border: 1px solid rgba(255,255,255,0.12);
     border-radius: 6px;
     padding: 4px 0;
-    min-width: 160px;
+    min-width: 180px;
     z-index: 1000;
     backdrop-filter: blur(12px);
     box-shadow: 0 8px 24px rgba(0,0,0,0.5);
@@ -245,18 +240,28 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     transition: background 0.1s;
   }
   .ctx-menu .ctx-item:hover { background: ${accentColor}40; }
+  .ctx-item-check {
+    display: inline-block;
+    width: 16px;
+    font-size: 12px;
+    color: ${accentColor};
+  }
   .ctx-sep { height: 1px; background: rgba(255,255,255,0.08); margin: 3px 0; }
 </style></head>
 <body>
-  <div id="header">File Tree</div>
+  ${drawerHeaderHtml('File Tree')}
+  ${drawerSearchHtml('Search files...')}
   <div id="tree"></div>
+  <div id="search-results"></div>
   <script>
     const { ipcRenderer } = require('electron');
     const tree = document.getElementById('tree');
+    const searchResults = document.getElementById('search-results');
+    const searchInput = document.getElementById('search');
     const rootPath = ${JSON.stringify(cwd)};
     const rootName = ${JSON.stringify(rootName)};
+    let showHidden = false;
 
-    // Icon helpers
     function dirIcon() { return '\\uD83D\\uDCC1'; }
     function fileIcon(name) {
       const ext = name.split('.').pop().toLowerCase();
@@ -271,8 +276,13 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
       return icons[ext] || '\\uD83D\\uDCC4';
     }
 
+    function relPath(fullPath) {
+      return fullPath.startsWith(rootPath) ? fullPath.slice(rootPath.length + 1) : fullPath;
+    }
+
+    // ─── Tree view (default) ───
     async function loadChildren(dirPath, container, depth) {
-      const entries = await ipcRenderer.invoke('${channelReadDir}', dirPath);
+      const entries = await ipcRenderer.invoke('${channelReadDir}', dirPath, showHidden);
       container.innerHTML = '';
       for (const entry of entries) {
         const row = document.createElement('div');
@@ -318,7 +328,6 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
           });
         }
 
-        // Right-click context menu
         row.addEventListener('contextmenu', (e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -330,7 +339,62 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
       }
     }
 
-    // Context menu
+    // ─── Search ───
+    let searchTimer = null;
+    searchInput.addEventListener('input', () => {
+      if (searchTimer) clearTimeout(searchTimer);
+      const q = searchInput.value.trim();
+      if (q.length < 2) {
+        tree.style.display = '';
+        searchResults.style.display = 'none';
+        searchResults.innerHTML = '';
+        return;
+      }
+      searchTimer = setTimeout(async () => {
+        const results = await ipcRenderer.invoke('${channelSearch}', q, showHidden);
+        tree.style.display = 'none';
+        searchResults.style.display = '';
+        searchResults.innerHTML = '';
+        if (results.length === 0) {
+          searchResults.innerHTML = '<div class="empty">No matches</div>';
+          return;
+        }
+        for (const entry of results) {
+          const row = document.createElement('div');
+          row.className = 'node ' + (entry.isDir ? 'dir' : 'file');
+          row.style.paddingLeft = '10px';
+
+          const icon = document.createElement('span');
+          icon.className = 'icon';
+          icon.textContent = entry.isDir ? dirIcon() : fileIcon(entry.name);
+          row.appendChild(icon);
+
+          const nameEl = document.createElement('span');
+          nameEl.className = 'name';
+          nameEl.textContent = entry.name;
+          row.appendChild(nameEl);
+
+          const rel = document.createElement('span');
+          rel.className = 'rel-path';
+          rel.textContent = relPath(entry.path);
+          row.appendChild(rel);
+
+          row.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            showContextMenu(e.clientX, e.clientY, entry.path, entry.isDir);
+          });
+
+          row.addEventListener('click', () => {
+            ipcRenderer.send('${channelAddToPrompt}', entry.path);
+          });
+
+          searchResults.appendChild(row);
+        }
+      }, 200);
+    });
+
+    // ─── Context menu ───
     let activeMenu = null;
     function showContextMenu(x, y, filePath, isDir) {
       hideContextMenu();
@@ -348,7 +412,28 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
       });
       menu.appendChild(addItem);
 
-      // Keep in viewport
+      const sep = document.createElement('div');
+      sep.className = 'ctx-sep';
+      menu.appendChild(sep);
+
+      const vscodeItem = document.createElement('div');
+      vscodeItem.className = 'ctx-item';
+      vscodeItem.textContent = 'Open with VS Code';
+      vscodeItem.addEventListener('click', () => {
+        ipcRenderer.send('${channelOpenVSCode}', filePath);
+        hideContextMenu();
+      });
+      menu.appendChild(vscodeItem);
+
+      const finderItem = document.createElement('div');
+      finderItem.className = 'ctx-item';
+      finderItem.textContent = 'Reveal in Finder';
+      finderItem.addEventListener('click', () => {
+        ipcRenderer.send('${channelOpenFinder}', filePath, isDir);
+        hideContextMenu();
+      });
+      menu.appendChild(finderItem);
+
       document.body.appendChild(menu);
       const rect = menu.getBoundingClientRect();
       if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 4) + 'px';
@@ -365,21 +450,53 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     }
 
     document.addEventListener('click', hideContextMenu);
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') {
-        if (activeMenu) hideContextMenu();
-        else window.close();
+
+    function reloadTree() {
+      tree.innerHTML = '';
+      loadChildren(rootPath, tree, 0);
+      // If search is active, re-run it
+      const q = searchInput.value.trim();
+      if (q.length >= 2) {
+        searchInput.dispatchEvent(new Event('input'));
       }
+    }
+
+    loadChildren(rootPath, tree, 0);
+
+    // ─── Header right-click context menu ───
+    document.querySelector('.drawer-header').addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      hideContextMenu();
+      const menu = document.createElement('div');
+      menu.className = 'ctx-menu';
+      menu.style.left = e.clientX + 'px';
+      menu.style.top = e.clientY + 'px';
+
+      const toggleItem = document.createElement('div');
+      toggleItem.className = 'ctx-item';
+      const check = showHidden ? '\\u2713' : '';
+      toggleItem.innerHTML = '<span class="ctx-item-check">' + check + '</span>Show Hidden Files';
+      toggleItem.addEventListener('click', () => {
+        showHidden = !showHidden;
+        hideContextMenu();
+        reloadTree();
+      });
+      menu.appendChild(toggleItem);
+
+      document.body.appendChild(menu);
+      const rect = menu.getBoundingClientRect();
+      if (rect.right > window.innerWidth) menu.style.left = (window.innerWidth - rect.width - 4) + 'px';
+      if (rect.bottom > window.innerHeight) menu.style.top = (window.innerHeight - rect.height - 4) + 'px';
+      activeMenu = menu;
     });
 
-    // Load root
-    loadChildren(rootPath, tree, 0);
+    ${drawerSearchScript()}
+    ${drawerBaseScript()}
   </script>
 </body>
 </html>`
 
-  win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
-  win.once('ready-to-show', () => win.show())
-
+  loadDrawerHtml(win, html)
   return true
 }

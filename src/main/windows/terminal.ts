@@ -66,7 +66,7 @@ export function createTerminalWindow(options: TerminalWindowOptions): BrowserWin
   // Open links in default browser instead of Electron
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      shell.openExternal(url)
+      shell.openExternal(url).catch(() => {})
     }
     return { action: 'deny' }
   })
@@ -74,7 +74,7 @@ export function createTerminalWindow(options: TerminalWindowOptions): BrowserWin
   win.webContents.on('will-navigate', (event, url) => {
     event.preventDefault()
     if (url.startsWith('http://') || url.startsWith('https://')) {
-      shell.openExternal(url)
+      shell.openExternal(url).catch(() => {})
     }
   })
 
