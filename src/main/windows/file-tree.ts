@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain, shell } from 'electron'
+import { BrowserWindow, ipcMain, shell, nativeImage } from 'electron'
 import { exec } from 'child_process'
 import * as fs from 'fs/promises'
 import * as path from 'path'
@@ -22,6 +22,8 @@ interface DirEntry {
   name: string
   path: string
   isDir: boolean
+  mtime: number   // last modified timestamp ms
+  birthtime: number // created timestamp ms
 }
 
 function shouldSkip(name: string, showHidden: boolean): boolean {
@@ -30,30 +32,51 @@ function shouldSkip(name: string, showHidden: boolean): boolean {
   return false
 }
 
-async function readDir(dirPath: string, showHidden = false): Promise<DirEntry[]> {
+type SortMode = 'name' | 'modified' | 'created' | 'default'
+
+function sortEntries(entries: DirEntry[], mode: SortMode): DirEntry[] {
+  return entries.sort((a, b) => {
+    // Directories always first
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
+    switch (mode) {
+      case 'modified':  return b.mtime - a.mtime
+      case 'created':   return b.birthtime - a.birthtime
+      case 'default':   return 0 // filesystem order (no sort within dirs/files)
+      case 'name':
+      default:          return a.name.localeCompare(b.name)
+    }
+  })
+}
+
+async function readDir(dirPath: string, showHidden = false, sort: SortMode = 'name'): Promise<DirEntry[]> {
   try {
     const entries = await fs.readdir(dirPath, { withFileTypes: true })
     const results: DirEntry[] = []
     for (const entry of entries) {
       if (shouldSkip(entry.name, showHidden)) continue
+      const fullPath = path.join(dirPath, entry.name)
+      let mtime = 0, birthtime = 0
+      try {
+        const stat = await fs.stat(fullPath)
+        mtime = stat.mtimeMs
+        birthtime = stat.birthtimeMs
+      } catch { /* skip stat errors */ }
       results.push({
         name: entry.name,
-        path: path.join(dirPath, entry.name),
+        path: fullPath,
         isDir: entry.isDirectory(),
+        mtime,
+        birthtime,
       })
     }
-    results.sort((a, b) => {
-      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
-      return a.name.localeCompare(b.name)
-    })
-    return results
+    return sortEntries(results, sort)
   } catch {
     return []
   }
 }
 
 /** Recursively search for files/folders matching a query under dirPath (async, depth-limited) */
-async function searchDir(dirPath: string, query: string, showHidden = false, maxResults = 80, maxDepth = 8): Promise<DirEntry[]> {
+async function searchDir(dirPath: string, query: string, showHidden = false, sort: SortMode = 'name', maxResults = 80, maxDepth = 8): Promise<DirEntry[]> {
   const results: DirEntry[] = []
   const q = query.toLowerCase()
 
@@ -71,7 +94,13 @@ async function searchDir(dirPath: string, query: string, showHidden = false, max
       if (shouldSkip(entry.name, showHidden)) continue
       const fullPath = path.join(dir, entry.name)
       if (entry.name.toLowerCase().includes(q)) {
-        results.push({ name: entry.name, path: fullPath, isDir: entry.isDirectory() })
+        let mtime = 0, birthtime = 0
+        try {
+          const stat = await fs.stat(fullPath)
+          mtime = stat.mtimeMs
+          birthtime = stat.birthtimeMs
+        } catch { /* skip */ }
+        results.push({ name: entry.name, path: fullPath, isDir: entry.isDirectory(), mtime, birthtime })
       }
       if (entry.isDirectory()) {
         subdirs.push(fullPath)
@@ -84,11 +113,7 @@ async function searchDir(dirPath: string, query: string, showHidden = false, max
   }
 
   await walk(dirPath, 0)
-  results.sort((a, b) => {
-    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
-    return a.name.localeCompare(b.name)
-  })
-  return results
+  return sortEntries(results, sort)
 }
 
 export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cwd: string): boolean {
@@ -97,6 +122,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
   const channelAddToPrompt = `filetree-addprompt-${parentWin.id}`
   const channelOpenVSCode = `filetree-openvscode-${parentWin.id}`
   const channelOpenFinder = `filetree-openfinder-${parentWin.id}`
+  const channelStartDrag = `filetree-startdrag-${parentWin.id}`
 
   const result = createDrawerWindow({
     parentWin,
@@ -104,22 +130,22 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     color,
     closedChannel: 'terminal:filetree-closed',
     windowMap: treeWindows,
-    ipcChannels: [channelAddToPrompt, channelOpenVSCode, channelOpenFinder],
+    ipcChannels: [channelAddToPrompt, channelOpenVSCode, channelOpenFinder, channelStartDrag],
     ipcHandlers: [channelReadDir, channelSearch],
   })
 
   if (!result) return false
   const { win, bgColor, headerBg } = result
 
-  ipcMain.handle(channelReadDir, async (_e, dirPath: string, showHidden: boolean) => {
+  ipcMain.handle(channelReadDir, async (_e, dirPath: string, showHidden: boolean, sort: SortMode) => {
     const resolved = path.resolve(dirPath)
     if (!resolved.startsWith(cwd)) return []
-    return await readDir(resolved, !!showHidden)
+    return await readDir(resolved, !!showHidden, sort || 'name')
   })
 
-  ipcMain.handle(channelSearch, async (_e, query: string, showHidden: boolean) => {
+  ipcMain.handle(channelSearch, async (_e, query: string, showHidden: boolean, sort: SortMode) => {
     if (!query || query.length < 2) return []
-    return await searchDir(cwd, query, !!showHidden)
+    return await searchDir(cwd, query, !!showHidden, sort || 'name')
   })
 
   ipcMain.on(channelAddToPrompt, (_e, filePath: string) => {
@@ -142,6 +168,14 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     } else {
       shell.showItemInFolder(resolved)
     }
+  })
+
+  // Native file drag for cross-window drag-to-terminal
+  const dragIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAC0lEQVQ4jWNgGAUAAAGAAAGWLqzRAAAAAElFTkSuQmCC')
+  ipcMain.on(channelStartDrag, (event, filePath: string) => {
+    const resolved = path.resolve(filePath)
+    if (!resolved.startsWith(cwd)) return
+    event.sender.startDrag({ file: resolved, icon: dragIcon })
   })
 
   const accentColor = color
@@ -249,7 +283,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
   .ctx-sep { height: 1px; background: rgba(255,255,255,0.08); margin: 3px 0; }
 </style></head>
 <body>
-  ${drawerHeaderHtml('File Tree')}
+  ${drawerHeaderHtml('File Tree', `<button class="drawer-close-btn" id="sort-btn" title="Sort: Name" style="font-size:11px;margin-right:2px;width:auto;padding:0 6px;opacity:0.6;">A↓</button>`)}
   ${drawerSearchHtml('Search files...')}
   <div id="tree"></div>
   <div id="search-results"></div>
@@ -261,6 +295,21 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     const rootPath = ${JSON.stringify(cwd)};
     const rootName = ${JSON.stringify(rootName)};
     let showHidden = false;
+    const sortModes = ['name', 'modified', 'created', 'default'];
+    const sortLabels = { name: 'A\\u2193', modified: 'M\\u2193', created: 'C\\u2193', default: '\\u2014' };
+    const sortTitles = { name: 'Sort: Name', modified: 'Sort: Date Modified', created: 'Sort: Date Created', default: 'Sort: Default' };
+    let sortIdx = 0;
+    let currentSort = 'name';
+    const sortBtn = document.getElementById('sort-btn');
+    sortBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sortIdx = (sortIdx + 1) % sortModes.length;
+      currentSort = sortModes[sortIdx];
+      sortBtn.textContent = sortLabels[currentSort];
+      sortBtn.title = sortTitles[currentSort];
+      sortBtn.style.opacity = currentSort === 'name' ? '0.6' : '1';
+      reloadTree();
+    });
 
     function dirIcon() { return '\\uD83D\\uDCC1'; }
     function fileIcon(name) {
@@ -282,7 +331,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
 
     // ─── Tree view (default) ───
     async function loadChildren(dirPath, container, depth) {
-      const entries = await ipcRenderer.invoke('${channelReadDir}', dirPath, showHidden);
+      const entries = await ipcRenderer.invoke('${channelReadDir}', dirPath, showHidden, currentSort);
       container.innerHTML = '';
       for (const entry of entries) {
         const row = document.createElement('div');
@@ -290,6 +339,11 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
         row.style.paddingLeft = (depth * 14 + 6) + 'px';
         row.dataset.path = entry.path;
         row.dataset.isDir = entry.isDir ? '1' : '0';
+        row.draggable = true;
+        row.addEventListener('dragstart', (e) => {
+          e.preventDefault();
+          ipcRenderer.send('${channelStartDrag}', entry.path);
+        });
 
         const arrow = document.createElement('span');
         arrow.className = 'arrow' + (entry.isDir ? '' : ' hidden');
@@ -351,7 +405,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
         return;
       }
       searchTimer = setTimeout(async () => {
-        const results = await ipcRenderer.invoke('${channelSearch}', q, showHidden);
+        const results = await ipcRenderer.invoke('${channelSearch}', q, showHidden, currentSort);
         tree.style.display = 'none';
         searchResults.style.display = '';
         searchResults.innerHTML = '';
@@ -378,6 +432,12 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
           rel.className = 'rel-path';
           rel.textContent = relPath(entry.path);
           row.appendChild(rel);
+
+          row.draggable = true;
+          row.addEventListener('dragstart', (e) => {
+            e.preventDefault();
+            ipcRenderer.send('${channelStartDrag}', entry.path);
+          });
 
           row.addEventListener('contextmenu', (e) => {
             e.preventDefault();

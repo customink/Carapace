@@ -42,8 +42,10 @@ export async function detectActiveProcesses(): Promise<ActiveProcess[]> {
       const ppid = parseInt(parts[1] || '', 10)
       if (isNaN(pid) || isNaN(ppid)) continue
 
-      // Check if this is an actual claude CLI process
+      // Check if this is an actual claude CLI process (not MCP servers, helpers, etc.)
       const cmdPart = parts.slice(2).join(' ')
+      // Exclude processes running from ~/.claude/ (MCP servers, plugins, etc.)
+      if (cmdPart.includes('.claude/')) continue
       if (cmdPart.match(/\bclaude\b/)) {
         pidEntries.push({ pid, ppid })
       }

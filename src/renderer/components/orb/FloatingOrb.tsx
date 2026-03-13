@@ -27,10 +27,25 @@ export function FloatingOrb() {
   const dragStart = useRef({ x: 0, y: 0 })
   const [attentionPids, setAttentionPids] = useState<Set<number>>(new Set())
   const [thinkingPids, setThinkingPids] = useState<Set<number>>(new Set())
+  const thinkingInitialized = useRef(false)
 
   // Only show sessions spawned by Carapace on the orb
   const managedSessions = activeSessions.filter(s => s.managed)
   const count = managedSessions.length
+
+  // Initialize thinkingPids from session data on first load
+  // After initialization, thinkingPids is updated ONLY by direct SESSION_THINKING IPC
+  // (not from broadcast session data) to avoid stale broadcast keeping spinner on.
+  useEffect(() => {
+    if (!thinkingInitialized.current && activeSessions.length > 0) {
+      thinkingInitialized.current = true
+      const initial = new Set<number>()
+      for (const session of activeSessions) {
+        if (session.pid && session.isThinking) initial.add(session.pid)
+      }
+      if (initial.size > 0) setThinkingPids(initial)
+    }
+  }, [activeSessions])
 
   // Listen for attention and thinking notifications from main process
   useEffect(() => {
@@ -100,7 +115,7 @@ export function FloatingOrb() {
         rawColor: session.color,
         pid: session.pid,
         needsAttention: session.pid ? attentionPids.has(session.pid) : false,
-        isThinking: session.isThinking || (session.pid ? thinkingPids.has(session.pid) : false),
+        isThinking: session.pid ? thinkingPids.has(session.pid) : false,
         contextPercent: Math.round(session.contextPercent),
         initial: displayLabel,
         x: CENTER_X + cos * ORBIT_RADIUS - MINI_ORB_SIZE / 2,
@@ -289,13 +304,13 @@ export function FloatingOrb() {
         {miniOrbs.filter(o => !o.needsAttention && o.contextPercent > 0).map((orb) => (
           <motion.span
             key={`label-${orb.id}`}
-            className="absolute pointer-events-none flex items-center gap-[2px]"
+            className="absolute pointer-events-none flex items-center gap-[6px]"
             style={{
               left: orb.labelX,
               top: orb.labelY,
               transform: 'translate(-50%, -50%)',
               fontSize: 12,
-              fontWeight: 700,
+              fontWeight: 800,
               lineHeight: 1,
               color: '#fff',
               textShadow: `0 0 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.7), 0 0 6px ${orb.rawColor}80`,
@@ -310,10 +325,10 @@ export function FloatingOrb() {
               <span
                 className="inline-block animate-spin"
                 style={{
-                  width: 8,
-                  height: 8,
+                  width: 10,
+                  height: 10,
                   borderRadius: '50%',
-                  border: '1.5px solid transparent',
+                  border: '2px solid transparent',
                   borderTopColor: orb.rawColor,
                   borderRightColor: orb.rawColor,
                   flexShrink: 0,
@@ -340,10 +355,10 @@ export function FloatingOrb() {
             <span
               className="inline-block animate-spin"
               style={{
-                width: 8,
-                height: 8,
+                width: 10,
+                height: 10,
                 borderRadius: '50%',
-                border: '1.5px solid transparent',
+                border: '2px solid transparent',
                 borderTopColor: orb.rawColor,
                 borderRightColor: orb.rawColor,
               }}

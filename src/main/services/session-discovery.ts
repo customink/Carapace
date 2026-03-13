@@ -121,6 +121,21 @@ export async function discoverSessionsAsync(): Promise<SessionState[]> {
     }
   }
 
+  // 1a. Deduplicate: if multiple detected processes resolved to the same PTY session,
+  // keep only the first (managed) one and discard the rest.
+  const seenPtyIds = new Set<string>()
+  for (let i = sessions.length - 1; i >= 0; i--) {
+    const s = sessions[i]!
+    if (!s.managed || !s.pid) continue
+    const pty = ptyManager.getByPid(s.pid)
+    if (!pty) continue
+    if (seenPtyIds.has(pty.ptyId)) {
+      sessions.splice(i, 1) // remove duplicate
+    } else {
+      seenPtyIds.add(pty.ptyId)
+    }
+  }
+
   // 1b. Ensure all PTY-managed sessions appear even if process detection missed them
   // (e.g. claude process hasn't started yet right after spawn)
   const matchedPtyIds = new Set(

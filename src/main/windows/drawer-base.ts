@@ -232,6 +232,9 @@ export function createDrawerWindow(config: DrawerConfig): DrawerResult | null {
   const bgColor = tintedBackground(color, 0.06)
   const headerBg = tintedBackground(color, 0.1)
 
+  const MIN_DRAWER_WIDTH = 200
+  const MAX_DRAWER_WIDTH = 800
+
   const win = new BrowserWindow({
     width,
     height: parentBounds.height,
@@ -241,10 +244,12 @@ export function createDrawerWindow(config: DrawerConfig): DrawerResult | null {
     transparent: false,
     backgroundColor: bgColor,
     hasShadow: true,
-    resizable: false,
+    resizable: true,
     minimizable: false,
     maximizable: false,
     skipTaskbar: true,
+    minWidth: MIN_DRAWER_WIDTH,
+    maxWidth: MAX_DRAWER_WIDTH,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -254,15 +259,31 @@ export function createDrawerWindow(config: DrawerConfig): DrawerResult | null {
 
   windowMap.set(parentWin.id, win)
 
-  // Follow parent
+  // Follow parent — keep drawer anchored to parent's left edge, match height
+  let resizing = false
   const updatePosition = () => {
-    if (win.isDestroyed()) return
+    if (win.isDestroyed() || resizing) return
     const b = parentWin.getBounds()
-    win.setBounds({ x: b.x - width, y: b.y, width, height: b.height })
+    const drawerW = win.getBounds().width
+    win.setBounds({ x: b.x - drawerW, y: b.y, width: drawerW, height: b.height })
+  }
+
+  // When user resizes the drawer, snap height to parent and re-anchor position.
+  // Only the width should change freely; height stays locked to the terminal.
+  const onDrawerResize = () => {
+    if (win.isDestroyed() || parentWin.isDestroyed()) return
+    resizing = true
+    const db = win.getBounds()
+    const pb = parentWin.getBounds()
+    // Clamp width and lock height to parent
+    const w = Math.max(MIN_DRAWER_WIDTH, Math.min(MAX_DRAWER_WIDTH, db.width))
+    win.setBounds({ x: pb.x - w, y: pb.y, width: w, height: pb.height })
+    resizing = false
   }
 
   parentWin.on('move', updatePosition)
   parentWin.on('resize', updatePosition)
+  win.on('resize', onDrawerResize)
   parentWin.on('minimize', () => { if (!win.isDestroyed()) win.hide() })
   parentWin.on('restore', () => { if (!win.isDestroyed()) win.show() })
 
@@ -277,6 +298,7 @@ export function createDrawerWindow(config: DrawerConfig): DrawerResult | null {
     }
     parentWin.removeListener('move', updatePosition)
     parentWin.removeListener('resize', updatePosition)
+    win.removeListener('resize', onDrawerResize)
     windowMap.delete(parentWin.id)
   }
 

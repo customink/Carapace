@@ -48,6 +48,7 @@ export function toggleImageGalleryWindow(parentWin: BrowserWindow, _ptyId: strin
   const channelReorder = `imagegallery-reorder-${parentWin.id}`
   const channelSend = `imagegallery-send-${parentWin.id}`
   const channelContextMenu = `imagegallery-contextmenu-${parentWin.id}`
+  const channelStartDrag = `imagegallery-startdrag-${parentWin.id}`
 
   const result = createDrawerWindow({
     parentWin,
@@ -56,7 +57,7 @@ export function toggleImageGalleryWindow(parentWin: BrowserWindow, _ptyId: strin
     closedChannel: 'terminal:imagegallery-closed',
     windowMap: galleryWindows,
     ipcHandlers: [channelList, channelAddBuffer],
-    ipcChannels: [channelAdd, channelDelete, channelReorder, channelSend, channelContextMenu],
+    ipcChannels: [channelAdd, channelDelete, channelReorder, channelSend, channelContextMenu, channelStartDrag],
   })
 
   if (!result) return false
@@ -175,6 +176,19 @@ export function toggleImageGalleryWindow(parentWin: BrowserWindow, _ptyId: strin
       },
     ])
     menu.popup({ window: win })
+  })
+
+  // Native drag for cross-window drag-to-terminal
+  ipcMain.on(channelStartDrag, (event, filePath: string) => {
+    if (!fs.existsSync(filePath)) return
+    let icon: Electron.NativeImage
+    try {
+      icon = nativeImage.createFromPath(filePath).resize({ width: 32, height: 32 })
+      if (icon.isEmpty()) throw new Error('empty')
+    } catch {
+      icon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAC0lEQVQ4jWNgGAUAAAGAAAGWLqzRAAAAAElFTkSuQmCC')
+    }
+    event.sender.startDrag({ file: filePath, icon })
   })
 
   const html = `<!DOCTYPE html>
@@ -345,15 +359,10 @@ export function toggleImageGalleryWindow(parentWin: BrowserWindow, _ptyId: strin
           ipcRenderer.send('${channelContextMenu}', img.id, img.path);
         });
 
-        // Drag reorder
+        // Native drag (supports cross-window drag to terminal + internal reorder)
         card.addEventListener('dragstart', (e) => {
-          card.classList.add('dragging');
-          e.dataTransfer.setData('text/plain', img.id);
-          e.dataTransfer.effectAllowed = 'move';
-        });
-        card.addEventListener('dragend', () => {
-          card.classList.remove('dragging');
-          document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+          e.preventDefault();
+          ipcRenderer.send('${channelStartDrag}', img.path);
         });
         card.addEventListener('dragover', (e) => {
           e.preventDefault();
@@ -367,7 +376,13 @@ export function toggleImageGalleryWindow(parentWin: BrowserWindow, _ptyId: strin
           e.preventDefault();
           e.stopPropagation();
           card.classList.remove('drag-over');
-          const draggedId = e.dataTransfer.getData('text/plain');
+          // Look up dragged image by file path from native drag
+          let draggedId = '';
+          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            const droppedPath = e.dataTransfer.files[0].path;
+            const match = images.find(i => i.path === droppedPath);
+            if (match) draggedId = match.id;
+          }
           if (draggedId && draggedId !== img.id) {
             const fromIdx = images.findIndex(i => i.id === draggedId);
             const toIdx = images.findIndex(i => i.id === img.id);
@@ -427,6 +442,8 @@ export function toggleImageGalleryWindow(parentWin: BrowserWindow, _ptyId: strin
         if (!isImageFile(file)) continue;
         // Try file.path first (Electron provides this for local files)
         const filePath = file.path;
+        // Skip files already in the gallery (internal reorder native drag)
+        if (filePath && images.some(i => i.path === filePath)) continue;
         if (filePath) {
           ipcRenderer.send('${channelAdd}', filePath);
         } else {

@@ -10,6 +10,8 @@ import { loadHistory, copyNotes } from './services/session-history'
 import { addPrompt as addPromptToHistory, copyPromptHistory } from './services/prompt-history'
 import { loadSnippets, addSnippet, updateSnippet, deleteSnippet } from './services/snippet-store'
 import { showSnippetDialog } from './windows/snippet-dialog'
+import { loadPresets, addPreset, updatePreset, deletePreset } from './services/preset-store'
+import { showPresetDialog } from './windows/preset-dialog'
 import { loadAppSettings, saveAppSettings } from './services/app-settings-store'
 import { showSettingsWindow } from './windows/settings'
 import { showSlackComposeDialog } from './windows/slack-compose'
@@ -270,6 +272,91 @@ app.whenReady().then(() => {
         }
       },
       (() => {
+        const presets = loadPresets()
+        if (presets.length === 0) {
+          return {
+            label: 'Presets',
+            submenu: [
+              { label: '(No presets)', enabled: false },
+              { type: 'separator' as const },
+              {
+                label: 'New Preset...',
+                click: async () => {
+                  const result = await showPresetDialog()
+                  if (result) addPreset(result)
+                }
+              },
+            ]
+          }
+        }
+        return {
+          label: 'Presets',
+          submenu: [
+            ...presets.map((preset) => ({
+              label: preset.name,
+              click: () => {
+                // Build shellTabNames array: if user wants N tabs, create N entries
+                // so the renderer creates N shell tabs on startup
+                let shellTabNames: string[] | undefined
+                if (preset.shellTab) {
+                  const count = Math.max(1, preset.shellTabCount)
+                  shellTabNames = []
+                  for (let i = 0; i < count; i++) {
+                    shellTabNames.push(preset.shellTabNames[i] || '')
+                  }
+                }
+                spawnClaudeSession(
+                  preset.bypass,
+                  preset.title || undefined,
+                  preset.folder || undefined,
+                  preset.color || undefined,
+                  preset.shellTab || (shellTabNames && shellTabNames.length > 0),
+                  undefined, // no existing ptyId
+                  undefined, // no label
+                  shellTabNames,
+                )
+              }
+            })),
+            { type: 'separator' as const },
+            {
+              label: 'New Preset...',
+              click: async () => {
+                const result = await showPresetDialog()
+                if (result) addPreset(result)
+              }
+            },
+            {
+              label: 'Manage Presets...',
+              submenu: presets.map((preset) => ({
+                label: preset.name,
+                submenu: [
+                  {
+                    label: 'Edit...',
+                    click: async () => {
+                      const result = await showPresetDialog({
+                        name: preset.name,
+                        title: preset.title,
+                        folder: preset.folder,
+                        bypass: preset.bypass,
+                        color: preset.color,
+                        shellTab: preset.shellTab,
+                        shellTabCount: preset.shellTabCount,
+                        shellTabNames: preset.shellTabNames,
+                      })
+                      if (result) updatePreset(preset.id, result)
+                    }
+                  },
+                  {
+                    label: 'Delete',
+                    click: () => { deletePreset(preset.id) }
+                  }
+                ]
+              }))
+            },
+          ]
+        }
+      })(),
+      (() => {
         const history = loadHistory()
         if (history.length === 0) {
           return {
@@ -366,6 +453,21 @@ app.whenReady().then(() => {
     if (orb) {
       menu.popup({ window: orb })
     }
+  })
+
+  // ─── Presets ───
+  ipcMain.handle(IPC_CHANNELS.PRESETS_LIST, () => loadPresets())
+
+  ipcMain.handle(IPC_CHANNELS.PRESET_CREATE, async (_e, preset: Omit<import('@shared/types/preset').Preset, 'id'>) => {
+    return addPreset(preset)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.PRESET_UPDATE, async (_e, id: string, updates: Omit<import('@shared/types/preset').Preset, 'id'>) => {
+    return updatePreset(id, updates)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.PRESET_DELETE, async (_e, id: string) => {
+    return deletePreset(id)
   })
 
   // ─── Snippets ───

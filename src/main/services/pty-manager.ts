@@ -221,10 +221,12 @@ export function createPty(options: {
       win.webContents.send('terminal:data', data)
     }
 
-    // Thinking spinner fallback: clear after idle period (no significant output)
+    // Thinking spinner fallback: clear after idle period (no output at all).
     // Primary clearing is via JSONL completion detection in handlers.ts,
     // but this catches edge cases (interrupts, errors, missing JSONL).
-    if (session.isThinking && data.length >= SIGNIFICANT_CHUNK_SIZE) {
+    // Reset on ANY output (not just large chunks) so the fallback reliably fires
+    // once Claude goes quiet, matching how the bell uses JSONL end_turn directly.
+    if (session.isThinking) {
       if (session.thinkingTimer) clearTimeout(session.thinkingTimer)
       session.thinkingTimer = setTimeout(() => {
         session.thinkingTimer = null

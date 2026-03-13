@@ -45,5 +45,11 @@ export const IPC_CHANNELS = {
   TERMINAL_TITLE_UPDATED: 'terminal:title-updated',
 
   // Thinking state (Claude actively generating)
-  SESSION_THINKING: 'session:thinking'
+  SESSION_THINKING: 'session:thinking',
+
+  // Presets
+  PRESETS_LIST: 'presets:list',
+  PRESET_CREATE: 'preset:create',
+  PRESET_UPDATE: 'preset:update',
+  PRESET_DELETE: 'preset:delete',
 } as const
