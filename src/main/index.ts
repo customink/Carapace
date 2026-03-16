@@ -98,7 +98,7 @@ app.whenReady().then(() => {
       const channelCancel = `emoji-cancel-${Date.now()}`
       const pickerWin = new BrowserWindow({
         width: 340,
-        height: 80,
+        height: 130,
         frame: false,
         resizable: false,
         alwaysOnTop: true,
@@ -113,7 +113,8 @@ app.whenReady().then(() => {
 
       const html = `<!DOCTYPE html>
 <html><head><style>
-  body { margin:0; padding:12px 16px; background:#1a1a2e; display:flex; align-items:center; gap:8px; font-family:-apple-system,sans-serif; }
+  body { margin:0; padding:12px 16px; background:#1a1a2e; font-family:-apple-system,sans-serif; }
+  .top { display:flex; align-items:center; gap:8px; }
   input { width:60px; font-size:24px; padding:6px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.15);
     background:rgba(255,255,255,0.08); color:#fff; outline:none; text-align:center; }
   input:focus { border-color:rgba(255,255,255,0.3); }
@@ -123,14 +124,30 @@ app.whenReady().then(() => {
   button.cancel { background:rgba(255,255,255,0.1); }
   button.cancel:hover { background:rgba(255,255,255,0.18); }
   button:disabled { opacity:0.3; cursor:default; }
+  .picks { display:flex; gap:4px; margin-top:8px; }
+  .picks span { font-size:20px; cursor:pointer; padding:2px 4px; border-radius:6px; transition:background 0.1s; }
+  .picks span:hover { background:rgba(255,255,255,0.12); }
+  .hint { font-size:11px; color:rgba(255,255,255,0.3); margin-top:6px; }
 </style></head><body>
-  <input id="e" placeholder="?" autofocus />
-  <button id="ok" disabled>Save</button>
-  <button class="cancel" id="x">Cancel</button>
+  <div class="top">
+    <input id="e" placeholder="?" autofocus />
+    <button id="ok" disabled>Save</button>
+    <button class="cancel" id="x">Cancel</button>
+  </div>
+  <div class="picks" id="picks"></div>
+  <div class="hint">Click an emoji above or use <kbd>\u2303\u2318Space</kbd> for more</div>
   <script>
     const {ipcRenderer} = require('electron');
     const input = document.getElementById('e');
     const btn = document.getElementById('ok');
+    const quickEmojis = ['\uD83D\uDE80','\u26A1','\uD83D\uDC1B','\uD83D\uDD25','\u2B50','\uD83C\uDFAF','\uD83D\uDEE1','\uD83E\uDDEA','\uD83D\uDCA1','\uD83C\uDF1F','\uD83D\uDC8E','\uD83E\uDD16'];
+    const picks = document.getElementById('picks');
+    quickEmojis.forEach(em => {
+      const s = document.createElement('span');
+      s.textContent = em;
+      s.addEventListener('click', () => { input.value = em; updateBtn(); });
+      picks.appendChild(s);
+    });
     function updateBtn() { btn.disabled = !input.value.trim(); }
     function submit() {
       const val = input.value.trim();
