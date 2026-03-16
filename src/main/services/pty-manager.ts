@@ -44,7 +44,7 @@ export interface ShellPtySession {
 const shellSessions = new Map<string, ShellPtySession>()
 
 const IDLE_THRESHOLD_MS = 10000 // Fallback: clear spinner after 10s of no PTY output
-const MAX_THINKING_MS = 60000  // Absolute max: force clear spinner after 60s (reset by JSONL tool_use)
+const MAX_THINKING_MS = 30000  // Absolute max: force clear spinner after 30s (reset by JSONL tool_use)
 const STARTUP_GRACE_MS = 8000  // Ignore bell arming during first 8s (shell init + claude startup)
 
 let onAttentionCallback: ((pid: number) => void) | null = null
@@ -257,16 +257,19 @@ export function createPty(options: {
       win.webContents.send('terminal:data', data)
     }
 
-    // Reset idle timer on PTY output — Claude is still producing output, so it's active.
-    // The idle timer was started when isThinking was set (in writeToPty);
-    // here we just keep pushing it forward while output continues.
-    // Primary clearing is via JSONL end_turn in handlers.ts; this is the fallback.
+    // Reset idle timer only on REAL content output — not status bar escape sequences.
+    // Claude Code's status bar continuously emits small escape-sequence-only chunks
+    // that would prevent the idle timer from ever firing if we reset on all output.
+    // Strip ANSI escapes + carriage returns; only reset if actual text remains.
     if (session.isThinking && session.thinkingTimer) {
-      clearTimeout(session.thinkingTimer)
-      session.thinkingTimer = setTimeout(() => {
-        session.thinkingTimer = null
-        clearThinking(session.pid)
-      }, IDLE_THRESHOLD_MS)
+      const stripped = data.replace(/\x1b\[[0-9;]*[a-zA-Z?h-l]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').replace(/[\r\x1b]/g, '')
+      if (stripped.length >= 3) {
+        clearTimeout(session.thinkingTimer)
+        session.thinkingTimer = setTimeout(() => {
+          session.thinkingTimer = null
+          clearThinking(session.pid)
+        }, IDLE_THRESHOLD_MS)
+      }
     }
   })
 
