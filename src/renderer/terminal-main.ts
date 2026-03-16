@@ -424,7 +424,6 @@ async function init() {
 
   function addShellTab(shellPtyId: string, tabName?: string) {
     shellCounter++
-    tabbar.classList.add('visible')
 
     const name = tabName || `Shell ${shellCounter}`
 
@@ -537,7 +536,7 @@ async function init() {
       switchTab(shellTabs.length > 0 ? shellTabs[shellTabs.length - 1].id : 'claude')
     }
     if (shellTabs.length === 0) {
-      tabbar.classList.remove('visible')
+      // Tab bar stays visible — "+" button always accessible
     }
   }
 
