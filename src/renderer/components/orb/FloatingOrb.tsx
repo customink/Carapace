@@ -28,6 +28,7 @@ export function FloatingOrb() {
   const dragStart = useRef({ x: 0, y: 0 })
   const [attentionPids, setAttentionPids] = useState<Set<number>>(new Set())
   const [thinkingPids, setThinkingPids] = useState<Set<number>>(new Set())
+  const [hoveredPillId, setHoveredPillId] = useState<string | null>(null)
   const thinkingInitialized = useRef(false)
 
   // Only show sessions spawned by Carapace on the orb
@@ -83,10 +84,10 @@ export function FloatingOrb() {
     }
   }, [])
 
-  // Sort sessions by startTime ascending (oldest first = top)
+  // Sort sessions by startTime descending (newest first = top of arc)
   const sortedSessions = useMemo(() => {
     return [...managedSessions].sort((a, b) =>
-      new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+      new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
     )
   }, [managedSessions])
 
@@ -99,12 +100,24 @@ export function FloatingOrb() {
     // Distribute along an arc from -spreadAngle to +spreadAngle (0 = 3 o'clock).
     // New pills appear above existing ones (lowest index = topmost).
     const arcRadius = MAIN_ORB_SIZE / 2 + 16 // distance from orb center to pill left edge
-    const spreadAngle = Math.min(n * 16, 70) // degrees, grows with count, max 70°
+    const perPill = n <= 5 ? 16 : 20 // more spacing after 5 pills
+    const spreadAngle = Math.min(n * perPill, 80) // degrees, grows with count, max 80°
     const stepDeg = n > 1 ? (spreadAngle * 2) / (n - 1) : 0
 
+    // Find hovered index for spread effect
+    const hovIdx = sessionSlice.findIndex(s => s.id === hoveredPillId)
+
     return sessionSlice.map((session, i) => {
-      // Angle: top to bottom (negative = above center, positive = below)
-      const angleDeg = n > 1 ? -spreadAngle + stepDeg * i : 0
+      // Base angle: top to bottom (negative = above center, positive = below)
+      let angleDeg = n > 1 ? -spreadAngle + stepDeg * i : 0
+
+      // Push neighbors apart when one pill is hovered
+      if (hovIdx >= 0 && i !== hovIdx) {
+        const dist = i - hovIdx
+        const push = dist > 0 ? 4 : dist < 0 ? -4 : 0
+        angleDeg += push
+      }
+
       const angleRad = (angleDeg * Math.PI) / 180
 
       // Position along the arc
@@ -127,7 +140,7 @@ export function FloatingOrb() {
         y: py,
       }
     })
-  }, [sortedSessions, count, attentionPids, thinkingPids])
+  }, [sortedSessions, count, attentionPids, thinkingPids, hoveredPillId])
 
   const handleMainMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return
@@ -255,8 +268,6 @@ export function FloatingOrb() {
             key={pill.id}
             className="absolute cursor-pointer flex items-center"
             style={{
-              left: pill.x,
-              top: pill.y,
               height: PILL_HEIGHT,
               borderRadius: PILL_HEIGHT / 2,
               padding: '0 10px 0 4px',
@@ -267,18 +278,22 @@ export function FloatingOrb() {
               backdropFilter: 'blur(8px)',
               gap: 6,
             }}
-            initial={{ x: -20, opacity: 0 }}
+            initial={{ left: pill.x - 20, top: pill.y, opacity: 0 }}
             animate={{
-              x: 0,
+              left: pill.x,
+              top: pill.y,
               opacity: 1,
               scale: pill.needsAttention ? [1, 1.05, 1] : 1,
+              zIndex: pill.id === hoveredPillId ? 10 : 1,
             }}
-            exit={{ x: -20, opacity: 0 }}
+            exit={{ left: pill.x - 20, top: pill.y, opacity: 0 }}
             transition={pill.needsAttention
               ? { scale: { duration: 0.6, repeat: Infinity, ease: 'easeInOut' }, type: 'spring', stiffness: 400, damping: 25 }
               : { type: 'spring', stiffness: 400, damping: 25 }
             }
-            whileHover={{ scale: 1.12, x: 6, zIndex: 10 }}
+            whileHover={{ scale: 1.12, x: 6 }}
+            onHoverStart={() => setHoveredPillId(pill.id)}
+            onHoverEnd={() => setHoveredPillId(prev => prev === pill.id ? null : prev)}
             onClick={(e) => handlePillClick(e, pill.pid)}
             onContextMenu={(e) => handlePillContextMenu(e, pill.pid)}
           >
