@@ -255,6 +255,46 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     color: rgba(255,255,255,0.2);
     text-align: center;
   }
+  .hidden-toggle {
+    display: flex;
+    align-items: center;
+    padding: 4px 12px;
+    -webkit-app-region: no-drag;
+    cursor: pointer;
+    user-select: none;
+  }
+  .hidden-toggle input[type="checkbox"] {
+    appearance: none;
+    width: 13px;
+    height: 13px;
+    border: 1.5px solid rgba(255,255,255,0.3);
+    border-radius: 3px;
+    background: transparent;
+    cursor: pointer;
+    margin: 0 6px 0 0;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .hidden-toggle input[type="checkbox"]:checked {
+    background: ${accentColor};
+    border-color: ${accentColor};
+  }
+  .hidden-toggle input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 0.5px;
+    width: 4px;
+    height: 7px;
+    border: solid #fff;
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+  }
+  .hidden-toggle label {
+    font-size: 11px;
+    color: rgba(255,255,255,0.45);
+    cursor: pointer;
+  }
   .ctx-menu {
     position: fixed;
     background: rgba(30,30,50,0.96);
@@ -285,6 +325,9 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
 <body>
   ${drawerHeaderHtml('File Tree', `<button class="drawer-close-btn" id="sort-btn" title="Sort: Name" style="font-size:11px;margin-right:2px;width:auto;padding:0 6px;opacity:0.6;">A↓</button>`)}
   ${drawerSearchHtml('Search files...')}
+  <div class="hidden-toggle">
+    <input type="checkbox" id="hidden-cb"><label for="hidden-cb">Show hidden files</label>
+  </div>
   <div id="tree"></div>
   <div id="search-results"></div>
   <script>
@@ -295,6 +338,11 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     const rootPath = ${JSON.stringify(cwd)};
     const rootName = ${JSON.stringify(rootName)};
     let showHidden = false;
+    const hiddenCb = document.getElementById('hidden-cb');
+    hiddenCb.addEventListener('change', () => {
+      showHidden = hiddenCb.checked;
+      reloadTree();
+    });
     const sortModes = ['name', 'modified', 'created', 'default'];
     const sortLabels = { name: 'A\\u2193', modified: 'M\\u2193', created: 'C\\u2193', default: '\\u2014' };
     const sortTitles = { name: 'Sort: Name', modified: 'Sort: Date Modified', created: 'Sort: Date Created', default: 'Sort: Default' };
@@ -539,6 +587,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
       toggleItem.innerHTML = '<span class="ctx-item-check">' + check + '</span>Show Hidden Files';
       toggleItem.addEventListener('click', () => {
         showHidden = !showHidden;
+        hiddenCb.checked = showHidden;
         hideContextMenu();
         reloadTree();
       });
