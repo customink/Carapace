@@ -48,6 +48,7 @@ const SIGNIFICANT_CHUNK_SIZE = 80 // Chunks smaller than this are likely status 
 let onAttentionCallback: ((pid: number) => void) | null = null
 let onThinkingChangeCallback: ((pid: number, isThinking: boolean) => void) | null = null
 let onPromptSubmitCallback: ((ptyId: string, prompt: string) => void) | null = null
+let onSessionsChangedCallback: (() => void) | null = null
 
 export function onAttention(cb: (pid: number) => void): void {
   onAttentionCallback = cb
@@ -59,6 +60,14 @@ export function onThinkingChange(cb: (pid: number, isThinking: boolean) => void)
 
 export function onPromptSubmit(cb: (ptyId: string, prompt: string) => void): void {
   onPromptSubmitCallback = cb
+}
+
+export function onSessionsChanged(cb: () => void): void {
+  onSessionsChangedCallback = cb
+}
+
+function notifySessionsChanged(): void {
+  if (onSessionsChangedCallback) onSessionsChangedCallback()
 }
 
 export function clearAttention(pid: number): void {
@@ -204,6 +213,7 @@ export function createPty(options: {
   }
 
   sessions.set(options.ptyId, session)
+  notifySessionsChanged()
 
   // Disarm bell when user focuses this terminal — they're watching, no need to chime
   const termWin = BrowserWindow.fromId(options.windowId)
@@ -246,6 +256,7 @@ export function createPty(options: {
     }
     sessions.delete(options.ptyId)
     updateDockVisibility()
+    notifySessionsChanged()
   })
 
   updateDockVisibility()
@@ -299,6 +310,7 @@ export function destroyPty(ptyId: string): void {
     session.pty.kill()
     sessions.delete(ptyId)
     updateDockVisibility()
+    notifySessionsChanged()
   }
 }
 
@@ -426,13 +438,13 @@ export function getAllSessions(): PtySession[] {
 /** Update the color for a session (by PID) */
 export function updateColor(pid: number, color: string): void {
   const session = getByPid(pid)
-  if (session) session.color = color
+  if (session) { session.color = color; notifySessionsChanged() }
 }
 
 /** Update the mini-orb label for a session (by PID) */
 export function updateLabel(pid: number, label: string): void {
   const session = getByPid(pid)
-  if (session) session.label = label
+  if (session) { session.label = label; notifySessionsChanged() }
 }
 
 /** Find all PTY sessions whose CWD encodes to the given project dir name */

@@ -19,7 +19,32 @@ import { getLastAssistantResponse } from './services/jsonl-parser'
 import { detectActiveProcesses } from './services/process-detector'
 import { getCachedSessions, invalidateCache, discoverSessionsAsync } from './services/session-discovery'
 import { SESSION_COLORS } from '@shared/constants/colors'
-import { setDockIcon, resetDockIcon } from './services/icon-generator'
+import { setDockIcon, resetDockIcon, getOrbIcon } from './services/icon-generator'
+
+/** Build and set the dock menu showing all active terminal sessions with colored orb icons */
+function updateDockMenu(): void {
+  if (process.platform !== 'darwin') return
+
+  const sessions = ptyManager.getAllSessions()
+
+  if (sessions.length === 0) {
+    app.dock?.setMenu(Menu.buildFromTemplate([]))
+    return
+  }
+
+  const items: Electron.MenuItemConstructorOptions[] = sessions.map(session => {
+    const label = session.label
+      ? `${session.label}  ${session.title || 'Claude Code'}`
+      : session.title || 'Claude Code'
+    return {
+      label,
+      icon: getOrbIcon(session.color, 16),
+      click: () => focusSessionTerminal(session.pid),
+    }
+  })
+
+  app.dock?.setMenu(Menu.buildFromTemplate(items))
+}
 
 app.whenReady().then(() => {
   registerIpcHandlers()
@@ -51,6 +76,9 @@ app.whenReady().then(() => {
       orb.webContents.send(IPC_CHANNELS.SESSION_THINKING, pid, isThinking)
     }
   })
+
+  // Update dock menu whenever sessions change (created, closed, etc.)
+  ptyManager.onSessionsChanged(() => updateDockMenu())
 
   createOrbWindow()
 
