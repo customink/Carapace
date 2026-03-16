@@ -43,7 +43,7 @@ export interface ShellPtySession {
 
 const shellSessions = new Map<string, ShellPtySession>()
 
-const IDLE_THRESHOLD_MS = 10000  // Fallback: clear spinner after 10s of no real PTY content
+const IDLE_THRESHOLD_MS = 15000  // Fallback: clear spinner 15s after Enter if JSONL hasn't cleared it
 const MAX_THINKING_MS = 300000  // Absolute max: 5 minutes (reset by each JSONL tool_use event)
 const STARTUP_GRACE_MS = 8000  // Ignore bell arming during first 8s (shell init + claude startup)
 
@@ -257,20 +257,12 @@ export function createPty(options: {
       win.webContents.send('terminal:data', data)
     }
 
-    // Reset idle timer only on REAL content output — not status bar escape sequences.
-    // Claude Code's status bar continuously emits small escape-sequence-only chunks
-    // that would prevent the idle timer from ever firing if we reset on all output.
-    // Strip ANSI escapes + carriage returns; only reset if actual text remains.
-    if (session.isThinking && session.thinkingTimer) {
-      const stripped = data.replace(/\x1b\[[0-9;]*[a-zA-Z?h-l]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').replace(/[\r\x1b]/g, '')
-      if (stripped.length >= 3) {
-        clearTimeout(session.thinkingTimer)
-        session.thinkingTimer = setTimeout(() => {
-          session.thinkingTimer = null
-          clearThinking(session.pid)
-        }, IDLE_THRESHOLD_MS)
-      }
-    }
+    // PTY output does NOT reset the idle timer. Claude Code's status line
+    // contains real text (model names, token counts) that is indistinguishable
+    // from actual response text, so any PTY-based reset defeats the timer.
+    // The idle timer fires purely based on elapsed time since Enter was pressed.
+    // JSONL events are the primary mechanism: end_turn clears immediately,
+    // tool_use resets both timers via rearmThinking().
   })
 
   // When PTY exits, notify renderer and close window
