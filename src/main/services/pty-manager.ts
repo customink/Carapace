@@ -483,6 +483,11 @@ export function updateLabel(pid: number, label: string): void {
   if (session) { session.label = label; notifySessionsChanged() }
 }
 
+export function updateTitle(pid: number, title: string): void {
+  const session = getByPid(pid)
+  if (session) { session.title = title; notifySessionsChanged() }
+}
+
 /** Find all PTY sessions whose CWD encodes to the given project dir name */
 export function getByEncodedCwd(encodedDir: string): PtySession[] {
   const results: PtySession[] = []

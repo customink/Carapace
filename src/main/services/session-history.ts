@@ -45,12 +45,13 @@ export function recordSession(entry: SessionHistoryEntry): void {
 }
 
 /** Update a history entry's mutable fields (label, color, shellTabNames) by ptyId */
-export function updateHistoryEntry(ptyId: string, updates: { label?: string; color?: string; shellTabNames?: string[] }): void {
+export function updateHistoryEntry(ptyId: string, updates: { label?: string; color?: string; title?: string; shellTabNames?: string[] }): void {
   const entries = loadHistory()
   const entry = entries.find(e => e.ptyId === ptyId)
   if (!entry) return
   if (updates.label !== undefined) entry.label = updates.label
   if (updates.color !== undefined) entry.color = updates.color
+  if (updates.title !== undefined) entry.title = updates.title
   if (updates.shellTabNames !== undefined) entry.shellTabNames = updates.shellTabNames
   saveHistory(entries)
 }

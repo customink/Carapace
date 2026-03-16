@@ -6,7 +6,7 @@ import { spawnClaudeSession, registerTerminalIpc } from './services/session-spaw
 import { focusSessionTerminal } from './services/terminal-focus'
 import * as ptyManager from './services/pty-manager'
 import { showSessionOptionsDialog } from './windows/prompt'
-import { loadHistory, copyNotes } from './services/session-history'
+import { loadHistory, copyNotes, updateHistoryEntry } from './services/session-history'
 import { addPrompt as addPromptToHistory, copyPromptHistory } from './services/prompt-history'
 import { loadSnippets, addSnippet, updateSnippet, deleteSnippet } from './services/snippet-store'
 import { showSnippetDialog } from './windows/snippet-dialog'
@@ -255,6 +255,85 @@ app.whenReady().then(() => {
       }
     }))
 
+    // Rename dialog
+    const showRenameDialog = () => {
+      const channelOk = `rename-ok-${Date.now()}`
+      const channelCancel = `rename-cancel-${Date.now()}`
+      const currentTitle = session?.title || ''
+      const renameWin = new BrowserWindow({
+        width: 360,
+        height: 90,
+        frame: false,
+        resizable: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        transparent: false,
+        backgroundColor: '#1a1a2e',
+        webPreferences: { nodeIntegration: true, contextIsolation: false },
+      })
+
+      const html = `<!DOCTYPE html>
+<html><head><style>
+  body { margin:0; padding:12px 16px; background:#1a1a2e; display:flex; align-items:center; gap:8px; font-family:-apple-system,sans-serif; }
+  input { flex:1; font-size:14px; padding:7px 10px; border-radius:8px; border:1px solid rgba(255,255,255,0.15);
+    background:rgba(255,255,255,0.08); color:#fff; outline:none; }
+  input:focus { border-color:rgba(124,58,237,0.6); }
+  button { padding:7px 14px; border-radius:8px; border:none; background:#7C3AED; color:#fff;
+    font-size:13px; font-weight:600; cursor:pointer; white-space:nowrap; }
+  button:hover { background:#6D28D9; }
+  button.cancel { background:rgba(255,255,255,0.1); }
+  button.cancel:hover { background:rgba(255,255,255,0.18); }
+</style></head><body>
+  <input id="t" value="${currentTitle.replace(/"/g, '&quot;')}" placeholder="Session name" autofocus />
+  <button id="ok">Save</button>
+  <button class="cancel" id="x">Cancel</button>
+  <script>
+    const {ipcRenderer} = require('electron');
+    const input = document.getElementById('t');
+    input.select();
+    function submit() { ipcRenderer.send('${channelOk}', input.value.trim()); }
+    document.getElementById('ok').addEventListener('click', submit);
+    document.getElementById('x').addEventListener('click', () => ipcRenderer.send('${channelCancel}'));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); submit(); }
+      if (e.key === 'Escape') ipcRenderer.send('${channelCancel}');
+    });
+  </script>
+</body></html>`
+
+      renameWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+
+      let resolved = false
+      const cleanup = () => {
+        if (resolved) return; resolved = true
+        ipcMain.removeAllListeners(channelOk)
+        ipcMain.removeAllListeners(channelCancel)
+      }
+
+      ipcMain.once(channelOk, (_e: Electron.IpcMainEvent, newTitle: string) => {
+        cleanup()
+        if (!renameWin.isDestroyed()) renameWin.close()
+        if (session) {
+          ptyManager.updateTitle(pid, newTitle)
+          updateHistoryEntry(session.ptyId, { title: newTitle })
+          // Update terminal window titlebar
+          const termWin = BrowserWindow.fromId(session.windowId)
+          if (termWin && !termWin.isDestroyed()) {
+            termWin.setTitle(newTitle || 'Claude Code')
+            termWin.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_UPDATED, newTitle || 'Claude Code')
+          }
+          refreshOrb()
+        }
+      })
+
+      ipcMain.once(channelCancel, () => {
+        cleanup()
+        if (!renameWin.isDestroyed()) renameWin.close()
+      })
+
+      renameWin.on('closed', cleanup)
+    }
+
     const menu = Menu.buildFromTemplate([
       {
         label: 'Focus Terminal',
@@ -262,17 +341,8 @@ app.whenReady().then(() => {
       },
       { type: 'separator' },
       {
-        label: 'Set Letter',
-        submenu: [
-          {
-            label: 'Default',
-            type: 'radio',
-            checked: currentLabel === '' || (currentLabel.length === 1 && !/[A-Z]/.test(currentLabel)),
-            click: () => { ptyManager.updateLabel(pid, ''); refreshOrb() }
-          },
-          { type: 'separator' },
-          ...letterItems,
-        ]
+        label: 'Rename...',
+        click: showRenameDialog
       },
       {
         label: 'Set Emoji...',
