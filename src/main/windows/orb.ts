@@ -10,10 +10,10 @@ let velocityX = 0
 let velocityY = 0
 let physicsTimer: ReturnType<typeof setInterval> | null = null
 
-const WINDOW_WIDTH = 210
-const WINDOW_HEIGHT = 210
-const MAIN_ORB_CENTER_X = 105
-const MAIN_ORB_CENTER_Y = 105
+const WINDOW_WIDTH = 450
+const WINDOW_HEIGHT = 300
+const MAIN_ORB_CENTER_X = 70
+const MAIN_ORB_CENTER_Y = 150
 
 export function createOrbWindow(): BrowserWindow {
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize

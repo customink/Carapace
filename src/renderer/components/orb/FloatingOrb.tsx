@@ -13,13 +13,14 @@ function darkenColor(hex: string, factor = 0.45): string {
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
 }
 
-
 const MAIN_ORB_SIZE = 70
-const MINI_ORB_SIZE = 28
-const ORBIT_RADIUS = 60
-const LABEL_OFFSET = 16 // extra distance beyond mini-orb edge for % label
-const CENTER_X = 105 // half of 210 wide
-const CENTER_Y = 105 // centered in 210-tall window
+const CENTER_X = 70   // main orb on the left
+const CENTER_Y = 150  // vertically centered in 300px window
+const PILL_LEFT = 130  // pills start to the right of the orb
+const PILL_TOP = 30    // first pill top offset
+const PILL_HEIGHT = 26
+const PILL_GAP = 6
+const PILL_MAX_WIDTH = 300
 
 export function FloatingOrb() {
   const { activeSessions } = useSessions()
@@ -35,8 +36,6 @@ export function FloatingOrb() {
   const count = managedSessions.length
 
   // Initialize thinkingPids from session data on first load
-  // After initialization, thinkingPids is updated ONLY by direct SESSION_THINKING IPC
-  // (not from broadcast session data) to avoid stale broadcast keeping spinner on.
   useEffect(() => {
     if (!thinkingInitialized.current && activeSessions.length > 0) {
       thinkingInitialized.current = true
@@ -85,31 +84,19 @@ export function FloatingOrb() {
     }
   }, [])
 
-  // Sort sessions by startTime ascending (oldest first = left side)
+  // Sort sessions by startTime ascending (oldest first = top)
   const sortedSessions = useMemo(() => {
     return [...managedSessions].sort((a, b) =>
       new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
     )
   }, [managedSessions])
 
-  // Clock positions: 12 slots at 30° each, starting at 9 o'clock (180°)
-  // Only the first 12 sessions get a mini-orb (visual limit)
-  const CLOCK_POSITIONS = 12
-  const SLOT_DEG = 360 / CLOCK_POSITIONS // 30° per slot
-  const START_ANGLE = 180 // 9 o'clock
-
-  const miniOrbs = useMemo(() => {
-    return sortedSessions.slice(0, CLOCK_POSITIONS).map((session, i) => {
-      const angleDeg = START_ANGLE + SLOT_DEG * i
-      const angleRad = (angleDeg * Math.PI) / 180
-      const cos = Math.cos(angleRad)
-      const sin = Math.sin(angleRad)
-      // Label positioned along the same radial line, beyond the mini-orb edge
-      const labelDist = ORBIT_RADIUS + MINI_ORB_SIZE / 2 + LABEL_OFFSET
+  const pills = useMemo(() => {
+    return sortedSessions.slice(0, 8).map((session, i) => {
       const name = session.title || session.firstPrompt || 'Claude Code'
-      // Use Array.from to correctly handle multi-byte emoji as first character
-      const firstChar = Array.from(name)[0] || '?'
-      const displayLabel = session.label || firstChar.toUpperCase()
+      // Truncate long names
+      const displayName = name.length > 28 ? name.slice(0, 26) + '...' : name
+      const label = session.label ? `${session.label} ` : ''
       return {
         id: session.id,
         color: darkenColor(session.color),
@@ -118,11 +105,9 @@ export function FloatingOrb() {
         needsAttention: session.pid ? attentionPids.has(session.pid) : false,
         isThinking: session.pid ? thinkingPids.has(session.pid) : false,
         contextPercent: Math.round(session.contextPercent),
-        initial: displayLabel,
-        x: CENTER_X + cos * ORBIT_RADIUS - MINI_ORB_SIZE / 2,
-        y: CENTER_Y + sin * ORBIT_RADIUS - MINI_ORB_SIZE / 2,
-        labelX: CENTER_X + cos * labelDist,
-        labelY: CENTER_Y + sin * labelDist,
+        name: `${label}${displayName}`,
+        x: PILL_LEFT,
+        y: PILL_TOP + i * (PILL_HEIGHT + PILL_GAP),
       }
     })
   }, [sortedSessions, count, attentionPids, thinkingPids])
@@ -147,7 +132,6 @@ export function FloatingOrb() {
       }
       latestX = ev.screenX
       latestY = ev.screenY
-      // Batch moves to one per animation frame to avoid IPC flooding
       if (!rafId) {
         rafId = requestAnimationFrame(() => {
           rafId = 0
@@ -162,7 +146,6 @@ export function FloatingOrb() {
         cancelAnimationFrame(rafId)
         rafId = 0
       }
-      // Send final position before ending drag
       window.carapace?.dragMove(latestX, latestY)
       window.carapace?.dragEnd()
       document.removeEventListener('mousemove', onMouseMove)
@@ -177,10 +160,9 @@ export function FloatingOrb() {
     document.addEventListener('mouseup', onMouseUp)
   }, [])
 
-  const handleMiniOrbClick = useCallback((e: React.MouseEvent, pid: number | undefined) => {
+  const handlePillClick = useCallback((e: React.MouseEvent, pid: number | undefined) => {
     e.stopPropagation()
     if (pid) {
-      // Clear attention locally immediately for responsive UI
       setAttentionPids(prev => {
         const next = new Set(prev)
         next.delete(pid)
@@ -190,7 +172,7 @@ export function FloatingOrb() {
     }
   }, [])
 
-  const handleMiniOrbContextMenu = useCallback((e: React.MouseEvent, pid: number | undefined) => {
+  const handlePillContextMenu = useCallback((e: React.MouseEvent, pid: number | undefined) => {
     e.preventDefault()
     e.stopPropagation()
     if (pid) {
@@ -206,14 +188,13 @@ export function FloatingOrb() {
   // Hit-test: only capture mouse events when cursor is over a visible element
   const lastIgnored = useRef(true)
   const handleHitTest = useCallback((e: React.MouseEvent) => {
-    // Don't toggle during drag
     if (isDragging.current) return
 
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
     const mx = e.clientX - rect.left
     const my = e.clientY - rect.top
 
-    const PAD = 6 // extra pixels of padding for easier targeting
+    const PAD = 6
 
     // Check main orb (circle hit test)
     const mainR = MAIN_ORB_SIZE / 2 + PAD
@@ -221,15 +202,11 @@ export function FloatingOrb() {
     const dyMain = my - CENTER_Y
     let over = (dxMain * dxMain + dyMain * dyMain) <= mainR * mainR
 
-    // Check mini-orbs
+    // Check pills (rectangle hit test)
     if (!over) {
-      const miniR = MINI_ORB_SIZE / 2 + PAD
-      over = miniOrbs.some(orb => {
-        const cx = orb.x + MINI_ORB_SIZE / 2
-        const cy = orb.y + MINI_ORB_SIZE / 2
-        const dx = mx - cx
-        const dy = my - cy
-        return (dx * dx + dy * dy) <= miniR * miniR
+      over = pills.some(pill => {
+        return mx >= pill.x - PAD && mx <= pill.x + PILL_MAX_WIDTH + PAD
+            && my >= pill.y - PAD && my <= pill.y + PILL_HEIGHT + PAD
       })
     }
 
@@ -238,7 +215,7 @@ export function FloatingOrb() {
       lastIgnored.current = shouldIgnore
       window.carapace?.setIgnoreMouseEvents(shouldIgnore)
     }
-  }, [miniOrbs])
+  }, [pills])
 
   return (
     <div
@@ -254,75 +231,84 @@ export function FloatingOrb() {
         }
       }}
     >
-      {/* Static mini-orbs positioned radially */}
+      {/* Session pills — stacked vertically to the right of the orb */}
       <AnimatePresence>
-        {miniOrbs.map((orb) => (
+        {pills.map((pill) => (
           <motion.div
-            key={orb.id}
-            className="absolute rounded-full cursor-pointer flex items-center justify-center"
+            key={pill.id}
+            className="absolute cursor-pointer flex items-center"
             style={{
-              width: MINI_ORB_SIZE,
-              height: MINI_ORB_SIZE,
-              left: orb.x,
-              top: orb.y,
-              background: orb.color,
-              boxShadow: orb.needsAttention
-                ? `0 0 14px ${orb.rawColor}, 0 0 6px rgba(255,255,255,0.4)`
-                : `0 0 10px ${orb.rawColor}40, 0 2px 6px rgba(0,0,0,0.3)`,
+              left: pill.x,
+              top: pill.y,
+              height: PILL_HEIGHT,
+              borderRadius: PILL_HEIGHT / 2,
+              padding: '0 10px 0 4px',
+              background: `${pill.color}cc`,
+              boxShadow: pill.needsAttention
+                ? `0 0 12px ${pill.rawColor}, 0 0 4px rgba(255,255,255,0.3)`
+                : `0 2px 8px rgba(0,0,0,0.3), 0 0 6px ${pill.rawColor}30`,
+              backdropFilter: 'blur(8px)',
+              gap: 6,
             }}
-            initial={{ scale: 0, opacity: 0 }}
+            initial={{ x: -20, opacity: 0 }}
             animate={{
-              scale: orb.needsAttention ? [1, 1.2, 1] : 1,
+              x: 0,
               opacity: 1,
+              scale: pill.needsAttention ? [1, 1.05, 1] : 1,
             }}
-            exit={{ scale: 0, opacity: 0 }}
-            transition={orb.needsAttention
-              ? { scale: { duration: 0.6, repeat: Infinity, ease: 'easeInOut' }, type: 'spring', stiffness: 400, damping: 20 }
-              : { type: 'spring', stiffness: 400, damping: 20 }
+            exit={{ x: -20, opacity: 0 }}
+            transition={pill.needsAttention
+              ? { scale: { duration: 0.6, repeat: Infinity, ease: 'easeInOut' }, type: 'spring', stiffness: 400, damping: 25 }
+              : { type: 'spring', stiffness: 400, damping: 25 }
             }
-            whileHover={{ scale: 1.35 }}
-            onClick={(e) => handleMiniOrbClick(e, orb.pid)}
-            onContextMenu={(e) => handleMiniOrbContextMenu(e, orb.pid)}
+            whileHover={{ scale: 1.04, brightness: 1.1 }}
+            onClick={(e) => handlePillClick(e, pill.pid)}
+            onContextMenu={(e) => handlePillContextMenu(e, pill.pid)}
           >
-            {orb.needsAttention ? (
-              <span style={{ fontSize: 13, lineHeight: 1, filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.5))' }}>
-                🔔
-              </span>
+            {/* Colored dot */}
+            <div style={{
+              width: 18,
+              height: 18,
+              borderRadius: '50%',
+              background: `linear-gradient(135deg, ${pill.rawColor}, ${pill.color})`,
+              flexShrink: 0,
+              boxShadow: `0 0 6px ${pill.rawColor}60`,
+            }} />
+
+            {/* Bell or name */}
+            {pill.needsAttention ? (
+              <span style={{ fontSize: 12, lineHeight: 1 }}>🔔</span>
             ) : (
               <span style={{
-                fontSize: 13,
-                fontWeight: 700,
+                fontSize: 11,
+                fontWeight: 600,
                 lineHeight: 1,
                 color: '#fff',
                 textShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                maxWidth: 200,
               }}>
-                {orb.initial}
+                {pill.name}
               </span>
             )}
-          </motion.div>
-        ))}
-        {/* Context % labels positioned along radial line outside mini-orbs */}
-        {miniOrbs.filter(o => !o.needsAttention && o.contextPercent > 0).map((orb) => (
-          <motion.span
-            key={`label-${orb.id}`}
-            className="absolute pointer-events-none flex items-center gap-[6px]"
-            style={{
-              left: orb.labelX,
-              top: orb.labelY,
-              transform: 'translate(-50%, -50%)',
-              fontSize: 12,
-              fontWeight: 800,
-              lineHeight: 1,
-              color: '#fff',
-              textShadow: `0 0 4px rgba(0,0,0,0.9), 0 0 8px rgba(0,0,0,0.7), 0 0 6px ${orb.rawColor}80`,
-              letterSpacing: '-0.3px',
-              whiteSpace: 'nowrap',
-            }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            {orb.isThinking && (
+
+            {/* Context % */}
+            {pill.contextPercent > 0 && !pill.needsAttention && (
+              <span style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: 'rgba(255,255,255,0.5)',
+                marginLeft: 2,
+                flexShrink: 0,
+              }}>
+                {pill.contextPercent}%
+              </span>
+            )}
+
+            {/* Thinking spinner */}
+            {pill.isThinking && !pill.needsAttention && (
               <span
                 className="inline-block animate-spin"
                 style={{
@@ -330,41 +316,14 @@ export function FloatingOrb() {
                   height: 10,
                   borderRadius: '50%',
                   border: '2px solid transparent',
-                  borderTopColor: orb.rawColor,
-                  borderRightColor: orb.rawColor,
+                  borderTopColor: '#fff',
+                  borderRightColor: '#fff',
                   flexShrink: 0,
+                  marginLeft: 2,
                 }}
               />
             )}
-            {orb.contextPercent}%
-          </motion.span>
-        ))}
-        {/* Thinking spinner for sessions with 0% context (no label shown yet) */}
-        {miniOrbs.filter(o => !o.needsAttention && o.contextPercent === 0 && o.isThinking).map((orb) => (
-          <motion.span
-            key={`thinking-${orb.id}`}
-            className="absolute pointer-events-none"
-            style={{
-              left: orb.labelX,
-              top: orb.labelY,
-              transform: 'translate(-50%, -50%)',
-            }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <span
-              className="inline-block animate-spin"
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: '50%',
-                border: '2px solid transparent',
-                borderTopColor: orb.rawColor,
-                borderRightColor: orb.rawColor,
-              }}
-            />
-          </motion.span>
+          </motion.div>
         ))}
       </AnimatePresence>
 
@@ -391,7 +350,7 @@ export function FloatingOrb() {
         />
       )}
 
-      {/* Main orb — centered in window */}
+      {/* Main orb */}
       <motion.div
         className="absolute rounded-full cursor-pointer select-none"
         style={{
