@@ -4,6 +4,24 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 
 ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
 
+<p align="center">
+  <img src="screenshots/terminals.png" width="700" alt="Multiple terminal sessions with floating orb" />
+</p>
+
+<p align="center">
+  <img src="screenshots/orb-closeup.png" width="160" alt="Floating orb close-up" />
+</p>
+
+<p align="center">
+  <img src="screenshots/session-options.png" width="280" alt="New session options dialog" />
+  <img src="screenshots/model-selector.png" width="700" alt="Model selector drawer" />
+</p>
+
+<p align="center">
+  <img src="screenshots/file-tree.png" width="700" alt="File tree drawer with hidden files toggle" />
+  <img src="screenshots/snippet-dialog.png" width="700" alt="Quick snippet creator" />
+</p>
+
 ## Features
 
 ### Floating Orb
