@@ -13,58 +13,6 @@ function darkenColor(hex: string, factor = 0.45): string {
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
 }
 
-/** Render a 3D orb to a canvas data URL — broad diffuse lighting, no harsh specular point */
-const orbCache = new Map<string, string>()
-function renderOrbDataUrl(hexColor: string, size: number): string {
-  const key = `${hexColor}-${size}`
-  const cached = orbCache.get(key)
-  if (cached) return cached
-
-  const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
-  const ctx = canvas.getContext('2d')!
-
-  const h = hexColor.replace('#', '')
-  const cr = parseInt(h.substring(0, 2), 16)
-  const cg = parseInt(h.substring(2, 4), 16)
-  const cb = parseInt(h.substring(4, 6), 16)
-
-  const cx = size / 2, cy = size / 2
-  const radius = size * 0.48
-
-  // Base circle with radial gradient (lit from top-left, dark at edges)
-  const grad = ctx.createRadialGradient(
-    cx - radius * 0.25, cy - radius * 0.25, radius * 0.05,
-    cx, cy, radius
-  )
-  grad.addColorStop(0, `rgba(${Math.min(255, cr + 60)}, ${Math.min(255, cg + 40)}, ${Math.min(255, cb + 30)}, 1)`)
-  grad.addColorStop(0.5, `rgba(${cr}, ${cg}, ${cb}, 1)`)
-  grad.addColorStop(1, `rgba(${Math.round(cr * 0.4)}, ${Math.round(cg * 0.35)}, ${Math.round(cb * 0.5)}, 1)`)
-
-  ctx.beginPath()
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
-  ctx.fillStyle = grad
-  ctx.fill()
-
-  // Broad diffuse highlight (large, soft, top-left — matches original CSS overlay)
-  const hl = ctx.createRadialGradient(
-    cx - radius * 0.3, cy - radius * 0.3, 0,
-    cx - radius * 0.1, cy - radius * 0.1, radius * 0.9
-  )
-  hl.addColorStop(0, 'rgba(255, 255, 255, 0.18)')
-  hl.addColorStop(0.5, 'rgba(255, 255, 255, 0.05)')
-  hl.addColorStop(1, 'rgba(255, 255, 255, 0)')
-
-  ctx.beginPath()
-  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
-  ctx.fillStyle = hl
-  ctx.fill()
-
-  const url = canvas.toDataURL('image/png')
-  orbCache.set(key, url)
-  return url
-}
 
 const MAIN_ORB_SIZE = 70
 const MINI_ORB_SIZE = 28
@@ -311,17 +259,16 @@ export function FloatingOrb() {
         {miniOrbs.map((orb) => (
           <motion.div
             key={orb.id}
-            className="absolute cursor-pointer flex items-center justify-center"
+            className="absolute rounded-full cursor-pointer flex items-center justify-center"
             style={{
               width: MINI_ORB_SIZE,
               height: MINI_ORB_SIZE,
               left: orb.x,
               top: orb.y,
-              backgroundImage: `url(${renderOrbDataUrl(orb.rawColor, MINI_ORB_SIZE * 2)})`,
-              backgroundSize: 'cover',
-              filter: orb.needsAttention
-                ? `drop-shadow(0 0 7px ${orb.rawColor}) drop-shadow(0 0 3px rgba(255,255,255,0.4))`
-                : `drop-shadow(0 0 5px ${orb.rawColor}40) drop-shadow(0 1px 3px rgba(0,0,0,0.3))`,
+              background: orb.color,
+              boxShadow: orb.needsAttention
+                ? `0 0 14px ${orb.rawColor}, 0 0 6px rgba(255,255,255,0.4)`
+                : `0 0 10px ${orb.rawColor}40, 0 2px 6px rgba(0,0,0,0.3)`,
             }}
             initial={{ scale: 0, opacity: 0 }}
             animate={{
@@ -444,26 +391,31 @@ export function FloatingOrb() {
         />
       )}
 
-      {/* Main orb — centered in window, 3D rendered */}
+      {/* Main orb — centered in window */}
       <motion.div
-        className="absolute cursor-pointer select-none"
+        className="absolute rounded-full cursor-pointer select-none"
         style={{
           width: MAIN_ORB_SIZE,
           height: MAIN_ORB_SIZE,
           left: CENTER_X - MAIN_ORB_SIZE / 2,
           top: CENTER_Y - MAIN_ORB_SIZE / 2,
-          backgroundImage: `url(${renderOrbDataUrl('#7C3AED', MAIN_ORB_SIZE * 2)})`,
-          backgroundSize: 'cover',
-          filter: count > 0
-            ? 'drop-shadow(0 0 14px rgba(124, 58, 237, 0.5)) drop-shadow(0 4px 10px rgba(0,0,0,0.4))'
-            : 'drop-shadow(0 4px 10px rgba(0,0,0,0.4))',
+          background: 'linear-gradient(135deg, #7C3AED, #2563EB)',
+          boxShadow: count > 0
+            ? '0 0 28px rgba(124, 58, 237, 0.5), 0 4px 20px rgba(0,0,0,0.4)'
+            : '0 4px 20px rgba(0,0,0,0.4)'
         }}
         whileHover={{
-          filter: 'drop-shadow(0 0 20px rgba(124, 58, 237, 0.7)) drop-shadow(0 0 10px rgba(37, 99, 235, 0.5)) drop-shadow(0 4px 10px rgba(0,0,0,0.4))',
+          boxShadow: '0 0 40px rgba(124, 58, 237, 0.7), 0 0 20px rgba(37, 99, 235, 0.5), 0 4px 20px rgba(0,0,0,0.4)',
         }}
         transition={{ duration: 0.2 }}
         onMouseDown={handleMainMouseDown}
       >
+        {/* Highlight */}
+        <div className="absolute inset-0 rounded-full"
+             style={{
+               background: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.2) 0%, transparent 60%)'
+             }} />
+
         {/* Active session count */}
         <div className="absolute inset-0 flex items-center justify-center">
           <span className="text-white font-bold text-[26px] leading-none
