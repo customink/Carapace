@@ -13,7 +13,7 @@ function darkenColor(hex: string, factor = 0.45): string {
   return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
 }
 
-/** Render a 3D orb with specular highlights to a canvas data URL (matches dock icon style) */
+/** Render a 3D orb to a canvas data URL — broad diffuse lighting, no harsh specular point */
 const orbCache = new Map<string, string>()
 function renderOrbDataUrl(hexColor: string, size: number): string {
   const key = `${hexColor}-${size}`
@@ -32,33 +32,35 @@ function renderOrbDataUrl(hexColor: string, size: number): string {
 
   const cx = size / 2, cy = size / 2
   const radius = size * 0.48
-  const imgData = ctx.createImageData(size, size)
-  const d = imgData.data
 
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const idx = (y * size + x) * 4
-      const dx = x - cx, dy = y - cy
-      const dist = Math.sqrt(dx * dx + dy * dy)
+  // Base circle with radial gradient (lit from top-left, dark at edges)
+  const grad = ctx.createRadialGradient(
+    cx - radius * 0.25, cy - radius * 0.25, radius * 0.05,
+    cx, cy, radius
+  )
+  grad.addColorStop(0, `rgba(${Math.min(255, cr + 60)}, ${Math.min(255, cg + 40)}, ${Math.min(255, cb + 30)}, 1)`)
+  grad.addColorStop(0.5, `rgba(${cr}, ${cg}, ${cb}, 1)`)
+  grad.addColorStop(1, `rgba(${Math.round(cr * 0.4)}, ${Math.round(cg * 0.35)}, ${Math.round(cb * 0.5)}, 1)`)
 
-      if (dist <= radius + 1.5) {
-        const t = Math.min(1, dist / radius)
-        const hlDist = Math.sqrt((dx / radius + 0.3) ** 2 + (dy / radius + 0.35) ** 2)
-        const specular = Math.max(0, 1 - hlDist * 1.2) ** 6 * 0.45
-        const diffuse = Math.max(0, 1 - t * 0.6)
-        const edge = 1 - t ** 3 * 0.5
-        const light = (0.55 + diffuse * 0.45) * edge + specular
-        const aa = Math.min(1, Math.max(0, radius + 1.5 - dist))
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+  ctx.fillStyle = grad
+  ctx.fill()
 
-        d[idx]     = Math.min(255, Math.round(cr * light + specular * 120))
-        d[idx + 1] = Math.min(255, Math.round(cg * light + specular * 100))
-        d[idx + 2] = Math.min(255, Math.round(cb * light + specular * 140))
-        d[idx + 3] = Math.round(255 * aa)
-      }
-    }
-  }
+  // Broad diffuse highlight (large, soft, top-left — matches original CSS overlay)
+  const hl = ctx.createRadialGradient(
+    cx - radius * 0.3, cy - radius * 0.3, 0,
+    cx - radius * 0.1, cy - radius * 0.1, radius * 0.9
+  )
+  hl.addColorStop(0, 'rgba(255, 255, 255, 0.18)')
+  hl.addColorStop(0.5, 'rgba(255, 255, 255, 0.05)')
+  hl.addColorStop(1, 'rgba(255, 255, 255, 0)')
 
-  ctx.putImageData(imgData, 0, 0)
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+  ctx.fillStyle = hl
+  ctx.fill()
+
   const url = canvas.toDataURL('image/png')
   orbCache.set(key, url)
   return url
@@ -450,7 +452,7 @@ export function FloatingOrb() {
           height: MAIN_ORB_SIZE,
           left: CENTER_X - MAIN_ORB_SIZE / 2,
           top: CENTER_Y - MAIN_ORB_SIZE / 2,
-          backgroundImage: `url(${renderOrbDataUrl('#5B3FE8', MAIN_ORB_SIZE * 2)})`,
+          backgroundImage: `url(${renderOrbDataUrl('#7C3AED', MAIN_ORB_SIZE * 2)})`,
           backgroundSize: 'cover',
           filter: count > 0
             ? 'drop-shadow(0 0 14px rgba(124, 58, 237, 0.5)) drop-shadow(0 4px 10px rgba(0,0,0,0.4))'
