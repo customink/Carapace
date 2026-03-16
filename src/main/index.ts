@@ -1,4 +1,4 @@
-import { app, ipcMain, Menu, BrowserWindow, screen } from 'electron'
+import { app, ipcMain, Menu, BrowserWindow, screen, dialog, shell, net } from 'electron'
 import { registerIpcHandlers, startSessionMonitor, stopSessionMonitor, startFastThinkingPoll } from './ipc/handlers'
 import { IPC_CHANNELS } from './ipc/channels'
 import { createOrbWindow, getOrbWindow } from './windows/orb'
@@ -23,6 +23,50 @@ import { SESSION_COLORS } from '@shared/constants/colors'
 // Set app name before anything else — shows "Carapace" in Dock tooltip and menu bar
 app.name = 'Carapace'
 import { setDockIcon, resetDockIcon, getOrbIcon } from './services/icon-generator'
+
+const GITHUB_REPO = 'customink/Carapace'
+const CURRENT_VERSION = require('../../package.json').version as string
+
+/** Check GitHub for a newer release and prompt to download */
+async function checkForUpdates(): Promise<void> {
+  try {
+    const response = await net.fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Carapace' },
+    })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const release = await response.json() as { tag_name: string; html_url: string; body?: string }
+
+    const latest = release.tag_name.replace(/^v/, '')
+    if (latest === CURRENT_VERSION) {
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'Up to Date',
+        message: `Carapace v${CURRENT_VERSION} is the latest version.`,
+        buttons: ['OK'],
+      })
+      return
+    }
+
+    const { response: btn } = await dialog.showMessageBox({
+      type: 'info',
+      title: 'Update Available',
+      message: `Carapace v${latest} is available (you have v${CURRENT_VERSION}).`,
+      detail: release.body ? release.body.slice(0, 500) : '',
+      buttons: ['Download', 'Later'],
+      defaultId: 0,
+    })
+    if (btn === 0) {
+      shell.openExternal(release.html_url)
+    }
+  } catch (err) {
+    dialog.showMessageBox({
+      type: 'error',
+      title: 'Update Check Failed',
+      message: `Could not check for updates: ${(err as Error).message}`,
+      buttons: ['OK'],
+    })
+  }
+}
 
 /** Build and set the dock menu showing all active terminal sessions with colored orb icons */
 function updateDockMenu(): void {
@@ -592,6 +636,10 @@ app.whenReady().then(() => {
             ptyManager.destroyPty(session.ptyId)
           }
         }
+      },
+      {
+        label: 'Check for Updates...',
+        click: () => checkForUpdates()
       },
       {
         label: 'Quit',
