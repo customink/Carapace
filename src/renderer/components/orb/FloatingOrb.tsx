@@ -92,10 +92,25 @@ export function FloatingOrb() {
 
   const pills = useMemo(() => {
     const sessionSlice = sortedSessions.slice(0, 8)
-    const totalHeight = sessionSlice.length * PILL_HEIGHT + (sessionSlice.length - 1) * PILL_GAP
-    const startY = CENTER_Y - totalHeight / 2 // center pills vertically around the orb
+    const n = sessionSlice.length
+    if (n === 0) return []
+
+    // Pills arc around the right side of the orb.
+    // Distribute along an arc from -spreadAngle to +spreadAngle (0 = 3 o'clock).
+    // New pills appear above existing ones (lowest index = topmost).
+    const arcRadius = MAIN_ORB_SIZE / 2 + 16 // distance from orb center to pill left edge
+    const spreadAngle = Math.min(n * 12, 55) // degrees, grows with count, max 55°
+    const stepDeg = n > 1 ? (spreadAngle * 2) / (n - 1) : 0
 
     return sessionSlice.map((session, i) => {
+      // Angle: top to bottom (negative = above center, positive = below)
+      const angleDeg = n > 1 ? -spreadAngle + stepDeg * i : 0
+      const angleRad = (angleDeg * Math.PI) / 180
+
+      // Position along the arc
+      const px = CENTER_X + Math.cos(angleRad) * arcRadius
+      const py = CENTER_Y + Math.sin(angleRad) * arcRadius - PILL_HEIGHT / 2
+
       const name = session.title || session.firstPrompt || 'Claude Code'
       const displayName = name.length > 28 ? name.slice(0, 26) + '...' : name
       const label = session.label ? `${session.label} ` : ''
@@ -108,8 +123,8 @@ export function FloatingOrb() {
         isThinking: session.pid ? thinkingPids.has(session.pid) : false,
         contextPercent: Math.round(session.contextPercent),
         name: `${label}${displayName}`,
-        x: PILL_LEFT,
-        y: startY + i * (PILL_HEIGHT + PILL_GAP),
+        x: px,
+        y: py,
       }
     })
   }, [sortedSessions, count, attentionPids, thinkingPids])
