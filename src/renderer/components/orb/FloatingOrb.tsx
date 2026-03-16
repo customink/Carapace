@@ -16,8 +16,7 @@ function darkenColor(hex: string, factor = 0.45): string {
 const MAIN_ORB_SIZE = 70
 const CENTER_X = 70   // main orb on the left
 const CENTER_Y = 150  // vertically centered in 300px window
-const PILL_LEFT = 130  // pills start to the right of the orb
-const PILL_TOP = 30    // first pill top offset
+const PILL_LEFT = CENTER_X + MAIN_ORB_SIZE / 2 + 12  // right edge of orb + gap
 const PILL_HEIGHT = 26
 const PILL_GAP = 6
 const PILL_MAX_WIDTH = 300
@@ -92,9 +91,12 @@ export function FloatingOrb() {
   }, [managedSessions])
 
   const pills = useMemo(() => {
-    return sortedSessions.slice(0, 8).map((session, i) => {
+    const sessionSlice = sortedSessions.slice(0, 8)
+    const totalHeight = sessionSlice.length * PILL_HEIGHT + (sessionSlice.length - 1) * PILL_GAP
+    const startY = CENTER_Y - totalHeight / 2 // center pills vertically around the orb
+
+    return sessionSlice.map((session, i) => {
       const name = session.title || session.firstPrompt || 'Claude Code'
-      // Truncate long names
       const displayName = name.length > 28 ? name.slice(0, 26) + '...' : name
       const label = session.label ? `${session.label} ` : ''
       return {
@@ -107,7 +109,7 @@ export function FloatingOrb() {
         contextPercent: Math.round(session.contextPercent),
         name: `${label}${displayName}`,
         x: PILL_LEFT,
-        y: PILL_TOP + i * (PILL_HEIGHT + PILL_GAP),
+        y: startY + i * (PILL_HEIGHT + PILL_GAP),
       }
     })
   }, [sortedSessions, count, attentionPids, thinkingPids])
