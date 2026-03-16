@@ -8,7 +8,10 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
-    "postinstall": "electron-rebuild"
+    "postinstall": "electron-rebuild",
+    "generate-icon": "node scripts/generate-icon.mjs",
+    "pack": "npm run build && npm run generate-icon && electron-builder --mac --dir",
+    "dist": "npm run build && npm run generate-icon && electron-builder --mac"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -23,16 +26,39 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
     "@tailwindcss/vite": "^4.2.1",
     "@types/node": "^25.4.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.4",
     "electron": "^40.8.0",
-    "@electron/rebuild": "^4.0.3",
+    "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
+  },
+  "build": {
+    "appId": "com.carapace.app",
+    "productName": "Carapace",
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        { "target": "dmg" },
+        { "target": "zip" }
+      ],
+      "identity": null
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**/*"
+    ]
   }
 }

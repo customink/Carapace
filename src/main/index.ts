@@ -19,6 +19,7 @@ import { getLastAssistantResponse } from './services/jsonl-parser'
 import { detectActiveProcesses } from './services/process-detector'
 import { getCachedSessions, invalidateCache, discoverSessionsAsync } from './services/session-discovery'
 import { SESSION_COLORS } from '@shared/constants/colors'
+import { setDockIcon, resetDockIcon } from './services/icon-generator'
 
 app.whenReady().then(() => {
   registerIpcHandlers()
@@ -594,4 +595,6 @@ app.on('before-quit', () => {
 })
 
 // Hide dock icon since this is a panel/accessory app
+// Set the orb as dock icon so it shows when terminals are opened
+resetDockIcon()
 app.dock?.hide()

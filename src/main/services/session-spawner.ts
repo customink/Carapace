@@ -12,6 +12,7 @@ import { togglePromptHistoryWindow } from '../windows/prompt-history'
 import { toggleImageGalleryWindow } from '../windows/image-gallery'
 import { showPresetDialog } from '../windows/preset-dialog'
 import { addPreset } from './preset-store'
+import { setDockIcon } from './icon-generator'
 import { IPC_CHANNELS } from '../ipc/channels'
 import { recordSession, updateHistoryEntry } from './session-history'
 import { discoverSessionsAsync, invalidateCache } from './session-discovery'
@@ -45,7 +46,8 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
     color,
   })
 
-  // Ensure dock is visible so terminal windows can show
+  // Ensure dock is visible so terminal windows can show, with colored orb icon
+  setDockIcon(color)
   app.dock?.show()
 
   const win = createTerminalWindow({ color, ptyId, title: displayTitle, shellTab, shellTabNames })
@@ -81,13 +83,17 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
   })
 
   // Clear attention bell when user focuses the terminal window directly
+  // Also update dock icon to match this terminal's color
   win.on('focus', () => {
     const session = ptyManager.getByWindowId(win.id)
-    if (session && session.needsAttention) {
-      ptyManager.clearAttention(session.pid)
-      const orb = getOrbWindow()
-      if (orb && !orb.isDestroyed()) {
-        orb.webContents.send(IPC_CHANNELS.SESSION_ATTENTION_CLEAR, session.pid)
+    if (session) {
+      setDockIcon(session.color)
+      if (session.needsAttention) {
+        ptyManager.clearAttention(session.pid)
+        const orb = getOrbWindow()
+        if (orb && !orb.isDestroyed()) {
+          orb.webContents.send(IPC_CHANNELS.SESSION_ATTENTION_CLEAR, session.pid)
+        }
       }
     }
   })
