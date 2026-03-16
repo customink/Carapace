@@ -43,8 +43,8 @@ export interface ShellPtySession {
 
 const shellSessions = new Map<string, ShellPtySession>()
 
-const IDLE_THRESHOLD_MS = 10000 // Fallback: clear spinner after 10s of no PTY output
-const MAX_THINKING_MS = 30000  // Absolute max: force clear spinner after 30s (reset by JSONL tool_use)
+const IDLE_THRESHOLD_MS = 10000  // Fallback: clear spinner after 10s of no real PTY content
+const MAX_THINKING_MS = 300000  // Absolute max: 5 minutes (reset by each JSONL tool_use event)
 const STARTUP_GRACE_MS = 8000  // Ignore bell arming during first 8s (shell init + claude startup)
 
 let onAttentionCallback: ((pid: number) => void) | null = null
