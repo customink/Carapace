@@ -15,7 +15,7 @@ function darkenColor(hex: string, factor = 0.45): string {
 
 const MAIN_ORB_SIZE = 70
 const CENTER_X = 70   // main orb on the left
-const CENTER_Y = 150  // vertically centered in 300px window
+const CENTER_Y = 190  // vertically centered in 380px window
 const PILL_LEFT = CENTER_X + MAIN_ORB_SIZE / 2 + 12  // right edge of orb + gap
 const PILL_HEIGHT = 26
 const PILL_GAP = 6
@@ -99,7 +99,7 @@ export function FloatingOrb() {
     // Distribute along an arc from -spreadAngle to +spreadAngle (0 = 3 o'clock).
     // New pills appear above existing ones (lowest index = topmost).
     const arcRadius = MAIN_ORB_SIZE / 2 + 16 // distance from orb center to pill left edge
-    const spreadAngle = Math.min(n * 12, 55) // degrees, grows with count, max 55°
+    const spreadAngle = Math.min(n * 16, 70) // degrees, grows with count, max 70°
     const stepDeg = n > 1 ? (spreadAngle * 2) / (n - 1) : 0
 
     return sessionSlice.map((session, i) => {
@@ -278,7 +278,7 @@ export function FloatingOrb() {
               ? { scale: { duration: 0.6, repeat: Infinity, ease: 'easeInOut' }, type: 'spring', stiffness: 400, damping: 25 }
               : { type: 'spring', stiffness: 400, damping: 25 }
             }
-            whileHover={{ scale: 1.04, brightness: 1.1 }}
+            whileHover={{ scale: 1.12, x: 6, zIndex: 10 }}
             onClick={(e) => handlePillClick(e, pill.pid)}
             onContextMenu={(e) => handlePillContextMenu(e, pill.pid)}
           >
