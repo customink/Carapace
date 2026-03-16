@@ -319,8 +319,9 @@ export function writeToPty(ptyId: string, data: string): void {
     session.needsAttention = false // clear any stale attention
   }
 
-  // Mark as thinking when user sends Enter (works even during startup)
-  if (isEnter && !session.isThinking) {
+  // Mark as thinking when user sends Enter — skip startup grace period
+  // (Enter during startup is for CLI prompts like "trust this folder", not Claude conversations)
+  if (isEnter && !session.isThinking && Date.now() - session.createdAt > STARTUP_GRACE_MS) {
     session.isThinking = true
     onThinkingChangeCallback?.(session.pid, true)
 
