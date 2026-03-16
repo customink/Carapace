@@ -425,7 +425,7 @@ async function init() {
   function addShellTab(shellPtyId: string, tabName?: string) {
     shellCounter++
 
-    const name = tabName || `Shell ${shellCounter}`
+    const name = tabName || `Tab ${shellCounter}`
 
     // Create tab element
     const tabEl = document.createElement('div')

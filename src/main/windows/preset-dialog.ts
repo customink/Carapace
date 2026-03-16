@@ -226,10 +226,10 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
   </div>
   <div class="checkbox-row">
     <input type="checkbox" id="shellTab" ${initShellTab ? 'checked' : ''} />
-    <label for="shellTab">Open companion shell tabs</label>
+    <label for="shellTab">Open companion tabs</label>
   </div>
   <div class="inline-row" id="countRow" style="display:${initShellTab ? 'flex' : 'none'}">
-    <label>Number of shell tabs</label>
+    <label>Number of tabs</label>
     <input type="number" id="shellTabCount" min="1" max="8" value="${initShellTabCount}" />
   </div>
   <div class="shell-names" id="shellNames"></div>
@@ -272,14 +272,14 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
     function renderShellNames() {
       if (!shellTabEl.checked) { shellNamesEl.innerHTML = ''; return; }
       const count = Math.max(1, Math.min(8, parseInt(shellTabCountEl.value) || 1));
-      let html = '<label style="margin-bottom:6px;">Shell tab names</label>';
+      let html = '<label style="margin-bottom:6px;">Tab names</label>';
       for (let i = 0; i < count; i++) {
         const val = initNames[i] || '';
         const existing = shellNamesEl.querySelector('#sn' + i);
         const curVal = existing ? existing.value : val;
         html += '<div class="name-row">' +
           '<span class="name-label">Tab ' + (i + 1) + '</span>' +
-          '<input id="sn' + i + '" type="text" placeholder="Shell ' + (i + 1) + '" value="' + curVal.replace(/"/g, '&quot;') + '" />' +
+          '<input id="sn' + i + '" type="text" placeholder="Tab ' + (i + 1) + '" value="' + curVal.replace(/"/g, '&quot;') + '" />' +
           '</div>';
       }
       // Preserve values before replacing
