@@ -585,6 +585,15 @@ app.whenReady().then(() => {
       },
       { type: 'separator' },
       {
+        label: 'Close All Sessions',
+        enabled: ptyManager.getAllSessions().length > 0,
+        click: () => {
+          for (const session of ptyManager.getAllSessions()) {
+            ptyManager.destroyPty(session.ptyId)
+          }
+        }
+      },
+      {
         label: 'Quit',
         click: () => app.quit()
       }
