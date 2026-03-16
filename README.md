@@ -4,14 +4,6 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 
 ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
 
-![Carapace desktop — floating orb with mini-orbs and a terminal session](screenshots/hero.png)
-
-> The floating orb sits on top of all windows. Each mini-orb represents an active Claude session with its own color, label, and status indicators.
-
-![Terminal window with sidebar tools](screenshots/terminal-with-sidebar.png)
-
-> Terminal window with colored titlebar, tabs, and the sidebar tool strip.
-
 ## Features
 
 ### Floating Orb
