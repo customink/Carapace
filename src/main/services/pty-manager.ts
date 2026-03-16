@@ -23,6 +23,8 @@ export interface PtySession {
   /** True when Claude is actively generating a response */
   isThinking: boolean
   thinkingTimer: ReturnType<typeof setTimeout> | null
+  /** Absolute max timer — force clears thinking after MAX_THINKING_MS */
+  maxThinkingTimer: ReturnType<typeof setTimeout> | null
   /** Buffer for accumulating user keystrokes before Enter */
   inputBuffer: string
   /** Shell tab names for persistence on revive */
@@ -41,9 +43,9 @@ export interface ShellPtySession {
 
 const shellSessions = new Map<string, ShellPtySession>()
 
-const IDLE_THRESHOLD_MS = 4000 // For thinking spinner fallback
-const STARTUP_GRACE_MS = 8000 // Ignore bell arming during first 8s (shell init + claude startup)
-const SIGNIFICANT_CHUNK_SIZE = 80 // Chunks smaller than this are likely status bar updates (ccstatusline)
+const IDLE_THRESHOLD_MS = 10000 // Fallback: clear spinner after 10s of no PTY output
+const MAX_THINKING_MS = 60000  // Absolute max: force clear spinner after 60s (reset by JSONL tool_use)
+const STARTUP_GRACE_MS = 8000  // Ignore bell arming during first 8s (shell init + claude startup)
 
 let onAttentionCallback: ((pid: number) => void) | null = null
 let onThinkingChangeCallback: ((pid: number, isThinking: boolean) => void) | null = null
@@ -110,6 +112,10 @@ export function clearThinking(pid: number): void {
     clearTimeout(session.thinkingTimer)
     session.thinkingTimer = null
   }
+  if (session.maxThinkingTimer) {
+    clearTimeout(session.maxThinkingTimer)
+    session.maxThinkingTimer = null
+  }
   session.isThinking = false
   onThinkingChangeCallback?.(session.pid, false)
 }
@@ -121,15 +127,34 @@ export function clearThinking(pid: number): void {
  */
 export function rearmThinking(pid: number): void {
   const session = getByPid(pid)
-  if (!session || session.isThinking) return
+  if (!session) return
 
-  // Cancel any pending idle timer
+  // Cancel any pending timers
   if (session.thinkingTimer) {
     clearTimeout(session.thinkingTimer)
     session.thinkingTimer = null
   }
-  session.isThinking = true
-  onThinkingChangeCallback?.(session.pid, true)
+  if (session.maxThinkingTimer) {
+    clearTimeout(session.maxThinkingTimer)
+    session.maxThinkingTimer = null
+  }
+
+  // Restart idle timer
+  session.thinkingTimer = setTimeout(() => {
+    session.thinkingTimer = null
+    clearThinking(session.pid)
+  }, IDLE_THRESHOLD_MS)
+
+  // Restart max timer (tool_use means Claude is still working — give it another 60s)
+  session.maxThinkingTimer = setTimeout(() => {
+    session.maxThinkingTimer = null
+    clearThinking(session.pid)
+  }, MAX_THINKING_MS)
+
+  if (!session.isThinking) {
+    session.isThinking = true
+    onThinkingChangeCallback?.(session.pid, true)
+  }
 }
 
 let cachedClaudePath: string | null = null
@@ -209,6 +234,7 @@ export function createPty(options: {
     createdAt: Date.now(),
     isThinking: false,
     thinkingTimer: null,
+    maxThinkingTimer: null,
     inputBuffer: '',
   }
 
@@ -231,13 +257,12 @@ export function createPty(options: {
       win.webContents.send('terminal:data', data)
     }
 
-    // Thinking spinner fallback: clear after idle period (no output at all).
-    // Primary clearing is via JSONL completion detection in handlers.ts,
-    // but this catches edge cases (interrupts, errors, missing JSONL).
-    // Reset on ANY output (not just large chunks) so the fallback reliably fires
-    // once Claude goes quiet, matching how the bell uses JSONL end_turn directly.
-    if (session.isThinking) {
-      if (session.thinkingTimer) clearTimeout(session.thinkingTimer)
+    // Reset idle timer on PTY output — Claude is still producing output, so it's active.
+    // The idle timer was started when isThinking was set (in writeToPty);
+    // here we just keep pushing it forward while output continues.
+    // Primary clearing is via JSONL end_turn in handlers.ts; this is the fallback.
+    if (session.isThinking && session.thinkingTimer) {
+      clearTimeout(session.thinkingTimer)
       session.thinkingTimer = setTimeout(() => {
         session.thinkingTimer = null
         clearThinking(session.pid)
@@ -295,6 +320,18 @@ export function writeToPty(ptyId: string, data: string): void {
   if (isEnter && !session.isThinking) {
     session.isThinking = true
     onThinkingChangeCallback?.(session.pid, true)
+
+    // Start idle timer immediately (don't wait for PTY output)
+    session.thinkingTimer = setTimeout(() => {
+      session.thinkingTimer = null
+      clearThinking(session.pid)
+    }, IDLE_THRESHOLD_MS)
+
+    // Absolute max timer — force clear if JSONL detection fails completely
+    session.maxThinkingTimer = setTimeout(() => {
+      session.maxThinkingTimer = null
+      clearThinking(session.pid)
+    }, MAX_THINKING_MS)
   }
 
   session.pty.write(data)

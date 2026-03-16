@@ -120,8 +120,11 @@ export function startSessionMonitor(): void {
 
 // ─── Fallback bell polling ───
 // Checks every 30s for completions that the file watcher may have missed.
+// When any session is thinking, a faster 5s check also runs to catch stuck spinners.
 const POLL_INTERVAL_MS = 30_000
+const FAST_POLL_INTERVAL_MS = 5_000
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let fastPollTimer: ReturnType<typeof setInterval> | null = null
 const pollCompletionCounts = new Map<string, number>()
 
 function startBellPolling(): void {
@@ -160,10 +163,54 @@ function startBellPolling(): void {
   }, POLL_INTERVAL_MS)
 }
 
+/** Fast poll (5s) — only active when sessions are thinking. Catches JSONL events the watcher missed. */
+export function startFastThinkingPoll(): void {
+  if (fastPollTimer) return
+  fastPollTimer = setInterval(() => {
+    const ptySessions = ptyManager.getAllSessions()
+    const thinkingSessions = ptySessions.filter(s => s.isThinking)
+
+    // Stop fast polling when no sessions are thinking
+    if (thinkingSessions.length === 0) {
+      if (fastPollTimer) { clearInterval(fastPollTimer); fastPollTimer = null }
+      return
+    }
+
+    for (const session of thinkingSessions) {
+      const encoded = session.cwd.replace(/\//g, '-')
+      const projectDir = path.join(PROJECTS_DIR, encoded)
+      if (!fs.existsSync(projectDir)) continue
+
+      try {
+        const files = fs.readdirSync(projectDir).filter(f => f.endsWith('.jsonl'))
+        for (const file of files) {
+          const filePath = path.join(projectDir, file)
+          const fileKey = `poll:${encoded}:${file}`
+          const parsed = parseSessionJsonl(filePath)
+          const count = parsed.completionCount || 0
+          const prevCount = pollCompletionCounts.get(fileKey) || 0
+
+          if (count > prevCount && pollCompletionCounts.has(fileKey)) {
+            ptyManager.fireBell(session.pid)
+            ptyManager.clearThinking(session.pid)
+          } else if (parsed.stopReason === 'tool_use') {
+            ptyManager.rearmThinking(session.pid)
+          }
+          pollCompletionCounts.set(fileKey, count)
+        }
+      } catch { /* ignore */ }
+    }
+  }, FAST_POLL_INTERVAL_MS)
+}
+
 function stopBellPolling(): void {
   if (pollTimer) {
     clearInterval(pollTimer)
     pollTimer = null
+  }
+  if (fastPollTimer) {
+    clearInterval(fastPollTimer)
+    fastPollTimer = null
   }
   pollCompletionCounts.clear()
 }

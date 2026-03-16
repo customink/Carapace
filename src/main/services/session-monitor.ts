@@ -20,7 +20,7 @@ export interface SessionUpdate {
 export class SessionMonitor extends EventEmitter {
   private watcher: ReturnType<typeof watch> | null = null
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  private static DEBOUNCE_MS = 1000
+  private static DEBOUNCE_MS = 500
 
   start(): void {
     if (this.watcher) return

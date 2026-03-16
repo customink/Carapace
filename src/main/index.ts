@@ -1,5 +1,5 @@
 import { app, ipcMain, Menu, BrowserWindow, screen } from 'electron'
-import { registerIpcHandlers, startSessionMonitor, stopSessionMonitor } from './ipc/handlers'
+import { registerIpcHandlers, startSessionMonitor, stopSessionMonitor, startFastThinkingPoll } from './ipc/handlers'
 import { IPC_CHANNELS } from './ipc/channels'
 import { createOrbWindow, getOrbWindow } from './windows/orb'
 import { spawnClaudeSession, registerTerminalIpc } from './services/session-spawner'
@@ -75,6 +75,8 @@ app.whenReady().then(() => {
     if (orb && !orb.isDestroyed()) {
       orb.webContents.send(IPC_CHANNELS.SESSION_THINKING, pid, isThinking)
     }
+    // Activate fast polling when any session starts thinking
+    if (isThinking) startFastThinkingPoll()
   })
 
   // Update dock menu whenever sessions change (created, closed, etc.)
