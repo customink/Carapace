@@ -4,6 +4,14 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 
 ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey)
 
+![Carapace desktop — floating orb with mini-orbs and a terminal session](screenshots/hero.png)
+
+> The floating orb sits on top of all windows. Each mini-orb represents an active Claude session with its own color, label, and status indicators.
+
+![Terminal window with sidebar tools](screenshots/terminal-with-sidebar.png)
+
+> Terminal window with colored titlebar, tabs, and the sidebar tool strip.
+
 ## Features
 
 ### Floating Orb
@@ -112,7 +120,7 @@ npm run dev          # dev mode with hot reload
 | [@types/node](https://www.npmjs.com/package/@types/node) | TypeScript type definitions for Node.js |
 | [@types/react](https://www.npmjs.com/package/@types/react) | TypeScript type definitions for React |
 | [@types/react-dom](https://www.npmjs.com/package/@types/react-dom) | TypeScript type definitions for React DOM |
-| [electron-rebuild](https://github.com/nickvdp/electron-rebuild) | Rebuilds native Node modules (node-pty) for Electron's Node version |
+| [@electron/rebuild](https://github.com/nickvdp/electron-rebuild) | Rebuilds native Node modules (node-pty) for Electron's Node version |
 
 ## Architecture
 
