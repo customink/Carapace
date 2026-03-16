@@ -52,6 +52,7 @@ declare global {
       showSidebarVisibilityMenu: () => void
       onSidebarVisibilityChanged: (callback: (hidden: string[]) => void) => () => void
       showContextMenu: (hasSelection: boolean) => void
+      saveAsPreset: () => void
       slackCompose: () => void
       onTitleUpdated: (callback: (title: string) => void) => () => void
       onColorUpdated: (callback: (color: string) => void) => () => void
@@ -213,7 +214,7 @@ async function init() {
     notes: 'Notes', skills: 'Slash Commands', skillbrowser: 'Skills',
     filetree: 'File Tree', model: 'Switch Model', github: 'GitHub',
     prompthistory: 'Prompt History', imagegallery: 'Image Gallery',
-    openfolder: 'Open Folder', slack: 'Share to Slack',
+    openfolder: 'Open Folder', savepreset: 'Save as Preset', slack: 'Share to Slack',
   }
 
   let hiddenBtns = new Set<string>()
@@ -814,6 +815,11 @@ async function init() {
   githubBtn.addEventListener('contextmenu', (e) => {
     e.preventDefault()
     window.carapaceTerminal.githubContextMenu()
+  })
+
+  // ─── Save as Preset ───
+  document.getElementById('savepreset-btn')!.addEventListener('click', () => {
+    window.carapaceTerminal.saveAsPreset()
   })
 
   // ─── Slack ───

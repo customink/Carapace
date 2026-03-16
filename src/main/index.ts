@@ -238,6 +238,25 @@ app.whenReady().then(() => {
       },
       { type: 'separator' },
       {
+        label: 'Save as Preset...',
+        enabled: !!session,
+        click: async () => {
+          if (!session) return
+          const result = await showPresetDialog({
+            name: '',
+            title: session.title || '',
+            folder: session.cwd || '',
+            bypass: true,
+            color: session.color || '',
+            shellTab: (session.shellTabNames?.length ?? 0) > 0,
+            shellTabCount: Math.max(1, session.shellTabNames?.length ?? 1),
+            shellTabNames: session.shellTabNames || [],
+          }, 'new')
+          if (result) addPreset(result)
+        }
+      },
+      { type: 'separator' },
+      {
         label: 'Close Session',
         click: () => {
           if (session) {

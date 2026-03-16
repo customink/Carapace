@@ -32,7 +32,7 @@ export interface PresetDialogResult {
  * Pass existing preset data to prefill for editing.
  * Returns null if the user cancels.
  */
-export function showPresetDialog(existing?: Omit<Preset, 'id'>): Promise<PresetDialogResult | null> {
+export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | 'edit'): Promise<PresetDialogResult | null> {
   return new Promise((resolve) => {
     const win = new BrowserWindow({
       width: 440,
@@ -95,8 +95,8 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>): Promise<PresetD
       return `<option value="${hex}"${selected}>${name}</option>`
     }).join('')
 
-    const isEdit = !!existing
-    const heading = isEdit ? 'Edit Preset' : 'New Preset'
+    const isEdit = mode === 'edit' || (!!existing && mode !== 'new')
+    const heading = isEdit ? 'Edit Preset' : 'Save Preset'
     const btnLabel = isEdit ? 'Save' : 'Create'
 
     const initName = existing?.name || ''

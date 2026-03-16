@@ -10,6 +10,8 @@ import { toggleModelSelectorWindow } from '../windows/model-selector'
 import { toggleFileTreeWindow } from '../windows/file-tree'
 import { togglePromptHistoryWindow } from '../windows/prompt-history'
 import { toggleImageGalleryWindow } from '../windows/image-gallery'
+import { showPresetDialog } from '../windows/preset-dialog'
+import { addPreset } from './preset-store'
 import { IPC_CHANNELS } from '../ipc/channels'
 import { recordSession, updateHistoryEntry } from './session-history'
 import { discoverSessionsAsync, invalidateCache } from './session-discovery'
@@ -408,6 +410,26 @@ export function registerTerminalIpc(): void {
     })
   })
 
+  // Save current session as a preset
+  ipcMain.on('terminal:save-as-preset', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const session = ptyManager.getByWindowId(win.id)
+    if (!session) return
+
+    const result = await showPresetDialog({
+      name: '',
+      title: session.title || '',
+      folder: session.cwd || '',
+      bypass: true,
+      color: session.color || '',
+      shellTab: (session.shellTabNames?.length ?? 0) > 0,
+      shellTabCount: Math.max(1, session.shellTabNames?.length ?? 1),
+      shellTabNames: session.shellTabNames || [],
+    }, 'new')
+    if (result) addPreset(result)
+  })
+
   // Sidebar settings persistence (order + hidden)
   const sidebarSettingsFile = path.join(os.homedir(), '.claude', 'usage-data', 'carapace-sidebar-order.json')
 
@@ -456,6 +478,7 @@ export function registerTerminalIpc(): void {
     { id: 'prompthistory', label: 'Prompt History' },
     { id: 'imagegallery', label: 'Image Gallery' },
     { id: 'openfolder', label: 'Open Folder' },
+    { id: 'savepreset', label: 'Save as Preset' },
     { id: 'slack', label: 'Share to Slack' },
   ]
 

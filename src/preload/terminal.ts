@@ -143,6 +143,9 @@ const terminalApi = {
   // Context menu
   showContextMenu: (hasSelection: boolean) => ipcRenderer.send('terminal:context-menu', hasSelection),
 
+  // Save as preset
+  saveAsPreset: () => ipcRenderer.send('terminal:save-as-preset'),
+
   // Slack
   slackCompose: () => ipcRenderer.send('slack:compose'),
 
