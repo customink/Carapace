@@ -111,10 +111,12 @@ export function FloatingOrb() {
       // Base angle: top to bottom (negative = above center, positive = below)
       let angleDeg = n > 1 ? -spreadAngle + stepDeg * i : 0
 
-      // Push neighbors apart when one pill is hovered
+      // Push neighbors apart when one pill is hovered — distance-based falloff
       if (hovIdx >= 0 && i !== hovIdx) {
-        const dist = i - hovIdx
-        const push = dist > 0 ? 4 : dist < 0 ? -4 : 0
+        const diff = i - hovIdx
+        const sign = diff > 0 ? 1 : -1
+        const distance = Math.abs(diff)
+        const push = sign * (10 / distance) // closer neighbors push more
         angleDeg += push
       }
 
