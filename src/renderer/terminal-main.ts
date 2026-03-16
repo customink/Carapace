@@ -52,6 +52,8 @@ declare global {
       showSidebarVisibilityMenu: () => void
       onSidebarVisibilityChanged: (callback: (hidden: string[]) => void) => () => void
       showContextMenu: (hasSelection: boolean) => void
+      getInputBuffer: () => Promise<string>
+      clearPrompt: () => void
       saveAsPreset: () => void
       slackCompose: () => void
       onTitleUpdated: (callback: (title: string) => void) => () => void
@@ -558,7 +560,27 @@ async function init() {
   })
 
   // Claude tab click
-  claudeTab.addEventListener('click', () => switchTab('claude'))
+  claudeTab.addEventListener('click', (e) => {
+    // Don't switch tab if clicking action buttons
+    if ((e.target as HTMLElement).closest('.tab-actions')) return
+    switchTab('claude')
+  })
+
+  // Copy prompt to clipboard
+  document.getElementById('copy-prompt-btn')!.addEventListener('click', async (e) => {
+    e.stopPropagation()
+    const text = await window.carapaceTerminal.getInputBuffer()
+    if (text) {
+      await navigator.clipboard.writeText(text)
+    }
+  })
+
+  // Clear prompt
+  document.getElementById('clear-prompt-btn')!.addEventListener('click', (e) => {
+    e.stopPropagation()
+    window.carapaceTerminal.clearPrompt()
+    claudeTerminal.focus()
+  })
 
   // Keyboard shortcut: Cmd+Shift+] and Cmd+Shift+[ to cycle tabs
   document.addEventListener('keydown', (e) => {

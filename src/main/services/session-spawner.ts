@@ -416,6 +416,24 @@ export function registerTerminalIpc(): void {
     })
   })
 
+  // Get the current input buffer (what user has typed but not sent)
+  ipcMain.handle('terminal:get-input-buffer', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return ''
+    const session = ptyManager.getByWindowId(win.id)
+    return session?.inputBuffer || ''
+  })
+
+  // Clear the current prompt (send Ctrl+U to erase line)
+  ipcMain.on('terminal:clear-prompt', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const session = ptyManager.getByWindowId(win.id)
+    if (session) {
+      ptyManager.writeToPty(session.ptyId, '\x15') // Ctrl+U clears line
+    }
+  })
+
   // Save current session as a preset
   ipcMain.on('terminal:save-as-preset', async (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)

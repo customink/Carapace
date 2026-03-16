@@ -143,6 +143,10 @@ const terminalApi = {
   // Context menu
   showContextMenu: (hasSelection: boolean) => ipcRenderer.send('terminal:context-menu', hasSelection),
 
+  // Prompt actions
+  getInputBuffer: () => ipcRenderer.invoke('terminal:get-input-buffer'),
+  clearPrompt: () => ipcRenderer.send('terminal:clear-prompt'),
+
   // Save as preset
   saveAsPreset: () => ipcRenderer.send('terminal:save-as-preset'),
 
