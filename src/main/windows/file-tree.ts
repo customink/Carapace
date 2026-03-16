@@ -1,7 +1,9 @@
 import { BrowserWindow, ipcMain, shell, nativeImage } from 'electron'
 import { exec } from 'child_process'
 import * as fs from 'fs/promises'
+import * as fsSync from 'fs'
 import * as path from 'path'
+import * as os from 'os'
 import {
   drawerBaseCss, drawerHeaderCss, drawerHeaderHtml, drawerBaseScript,
   drawerSearchCss, drawerSearchHtml, drawerSearchScript,
@@ -9,6 +11,22 @@ import {
 } from './drawer-base'
 
 const treeWindows = new Map<number, BrowserWindow>()
+
+const SETTINGS_FILE = path.join(os.homedir(), '.claude', 'usage-data', 'carapace-filetree-settings.json')
+
+function loadShowHidden(): boolean {
+  try {
+    const data = JSON.parse(fsSync.readFileSync(SETTINGS_FILE, 'utf-8'))
+    return !!data.showHidden
+  } catch { return false }
+}
+
+function saveShowHidden(value: boolean): void {
+  try {
+    fsSync.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true })
+    fsSync.writeFileSync(SETTINGS_FILE, JSON.stringify({ showHidden: value }))
+  } catch { /* ignore */ }
+}
 
 const PANEL_WIDTH = 300
 
@@ -123,6 +141,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
   const channelOpenVSCode = `filetree-openvscode-${parentWin.id}`
   const channelOpenFinder = `filetree-openfinder-${parentWin.id}`
   const channelStartDrag = `filetree-startdrag-${parentWin.id}`
+  const channelSaveHidden = `filetree-savehidden-${parentWin.id}`
 
   const result = createDrawerWindow({
     parentWin,
@@ -130,7 +149,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     color,
     closedChannel: 'terminal:filetree-closed',
     windowMap: treeWindows,
-    ipcChannels: [channelAddToPrompt, channelOpenVSCode, channelOpenFinder, channelStartDrag],
+    ipcChannels: [channelAddToPrompt, channelOpenVSCode, channelOpenFinder, channelStartDrag, channelSaveHidden],
     ipcHandlers: [channelReadDir, channelSearch],
   })
 
@@ -178,6 +197,11 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     event.sender.startDrag({ file: resolved, icon: dragIcon })
   })
 
+  ipcMain.on(channelSaveHidden, (_e, value: boolean) => {
+    saveShowHidden(!!value)
+  })
+
+  const initShowHidden = loadShowHidden()
   const accentColor = color
   const rootName = path.basename(cwd)
 
@@ -337,10 +361,12 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     const searchInput = document.getElementById('search');
     const rootPath = ${JSON.stringify(cwd)};
     const rootName = ${JSON.stringify(rootName)};
-    let showHidden = false;
+    let showHidden = ${initShowHidden};
     const hiddenCb = document.getElementById('hidden-cb');
+    hiddenCb.checked = showHidden;
     hiddenCb.addEventListener('change', () => {
       showHidden = hiddenCb.checked;
+      ipcRenderer.send('${channelSaveHidden}', showHidden);
       reloadTree();
     });
     const sortModes = ['name', 'modified', 'created', 'default'];
@@ -588,6 +614,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
       toggleItem.addEventListener('click', () => {
         showHidden = !showHidden;
         hiddenCb.checked = showHidden;
+        ipcRenderer.send('${channelSaveHidden}', showHidden);
         hideContextMenu();
         reloadTree();
       });
