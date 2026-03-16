@@ -44,15 +44,15 @@ function renderOrbDataUrl(hexColor: string, size: number): string {
       if (dist <= radius + 1.5) {
         const t = Math.min(1, dist / radius)
         const hlDist = Math.sqrt((dx / radius + 0.3) ** 2 + (dy / radius + 0.35) ** 2)
-        const specular = Math.max(0, 1 - hlDist * 1.1) ** 5 * 0.85
-        const diffuse = Math.max(0, 1 - t * 0.7)
-        const edge = 1 - t ** 3 * 0.6
-        const light = (0.5 + diffuse * 0.5) * edge + specular
+        const specular = Math.max(0, 1 - hlDist * 1.2) ** 6 * 0.45
+        const diffuse = Math.max(0, 1 - t * 0.6)
+        const edge = 1 - t ** 3 * 0.5
+        const light = (0.55 + diffuse * 0.45) * edge + specular
         const aa = Math.min(1, Math.max(0, radius + 1.5 - dist))
 
-        d[idx]     = Math.min(255, Math.round(cr * light + specular * 200))
-        d[idx + 1] = Math.min(255, Math.round(cg * light + specular * 180))
-        d[idx + 2] = Math.min(255, Math.round(cb * light + specular * 220))
+        d[idx]     = Math.min(255, Math.round(cr * light + specular * 120))
+        d[idx + 1] = Math.min(255, Math.round(cg * light + specular * 100))
+        d[idx + 2] = Math.min(255, Math.round(cb * light + specular * 140))
         d[idx + 3] = Math.round(255 * aa)
       }
     }
@@ -450,7 +450,7 @@ export function FloatingOrb() {
           height: MAIN_ORB_SIZE,
           left: CENTER_X - MAIN_ORB_SIZE / 2,
           top: CENTER_Y - MAIN_ORB_SIZE / 2,
-          backgroundImage: `url(${renderOrbDataUrl('#7C3AED', MAIN_ORB_SIZE * 2)})`,
+          backgroundImage: `url(${renderOrbDataUrl('#5B3FE8', MAIN_ORB_SIZE * 2)})`,
           backgroundSize: 'cover',
           filter: count > 0
             ? 'drop-shadow(0 0 14px rgba(124, 58, 237, 0.5)) drop-shadow(0 4px 10px rgba(0,0,0,0.4))'
