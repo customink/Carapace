@@ -19,6 +19,9 @@ import { getLastAssistantResponse } from './services/jsonl-parser'
 import { detectActiveProcesses } from './services/process-detector'
 import { getCachedSessions, invalidateCache, discoverSessionsAsync } from './services/session-discovery'
 import { SESSION_COLORS } from '@shared/constants/colors'
+
+// Set app name before anything else — shows "Carapace" in Dock tooltip and menu bar
+app.name = 'Carapace'
 import { setDockIcon, resetDockIcon, getOrbIcon } from './services/icon-generator'
 
 /** Build and set the dock menu showing all active terminal sessions with colored orb icons */
