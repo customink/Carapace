@@ -128,6 +128,9 @@ export function clearThinking(pid: number): void {
 export function rearmThinking(pid: number): void {
   const session = getByPid(pid)
   if (!session) return
+  // Only rearm if the user actually sent a prompt (bellArmed) — prevents
+  // old JSONL files with tool_use from arming the spinner on idle sessions
+  if (!session.bellArmed && !session.isThinking) return
 
   // Cancel any pending timers
   if (session.thinkingTimer) {
