@@ -560,11 +560,7 @@ async function init() {
   })
 
   // Claude tab click
-  claudeTab.addEventListener('click', (e) => {
-    // Don't switch tab if clicking action buttons
-    if ((e.target as HTMLElement).closest('.tab-actions')) return
-    switchTab('claude')
-  })
+  claudeTab.addEventListener('click', () => switchTab('claude'))
 
   // Copy prompt to clipboard
   document.getElementById('copy-prompt-btn')!.addEventListener('click', async (e) => {
