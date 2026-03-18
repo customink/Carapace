@@ -132,18 +132,16 @@ app.whenReady().then(() => {
   createOrbWindow()
 
   // Session creation
-  // Orb click — behavior depends on settings
-  ipcMain.on(IPC_CHANNELS.SESSION_CREATE, () => {
-    const settings = loadAppSettings()
-    switch (settings.orbClickAction) {
+  // Execute an orb click action based on settings
+  function executeOrbAction(action: string, presetId: string): void {
+    switch (action) {
       case 'new-session-bypass':
         spawnClaudeSession(true)
         break
       case 'focus-recent': {
         const sessions = ptyManager.getAllSessions()
         if (sessions.length > 0) {
-          const recent = sessions[sessions.length - 1]
-          focusSessionTerminal(recent.pid)
+          focusSessionTerminal(sessions[sessions.length - 1].pid)
         } else {
           spawnClaudeSession(false)
         }
@@ -161,9 +159,37 @@ app.whenReady().then(() => {
         }
         break
       }
+      case 'preset': {
+        const allPresets = loadPresets()
+        const preset = allPresets.find(p => p.id === presetId)
+        if (preset) {
+          let shellTabNames: string[] | undefined
+          if (preset.shellTab) {
+            const count = Math.max(1, preset.shellTabCount)
+            shellTabNames = []
+            for (let i = 0; i < count; i++) shellTabNames.push(preset.shellTabNames[i] || '')
+          }
+          spawnClaudeSession(preset.bypass, preset.title || undefined, preset.folder || undefined, preset.color || undefined, preset.shellTab || (shellTabNames && shellTabNames.length > 0), undefined, undefined, shellTabNames)
+        } else {
+          spawnClaudeSession(false)
+        }
+        break
+      }
       case 'new-session':
       default:
         spawnClaudeSession(false)
+    }
+  }
+
+  // Orb click — behavior depends on settings + modifier keys
+  ipcMain.on(IPC_CHANNELS.SESSION_CREATE, (_e, modifiers: { cmd?: boolean; ctrl?: boolean }) => {
+    const settings = loadAppSettings()
+    if (modifiers?.cmd) {
+      executeOrbAction(settings.orbCmdClickAction, settings.orbCmdClickPreset)
+    } else if (modifiers?.ctrl) {
+      executeOrbAction(settings.orbCtrlClickAction, settings.orbCtrlClickPreset)
+    } else {
+      executeOrbAction(settings.orbClickAction, settings.orbClickPreset)
     }
   })
 
@@ -647,7 +673,16 @@ app.whenReady().then(() => {
         click: async () => {
           const result = await showSettingsWindow()
           if (result) {
-            saveAppSettings({ chimeSound: result.chimeSound, chimeVolume: result.chimeVolume, orbClickAction: result.orbClickAction as any })
+            saveAppSettings({
+              chimeSound: result.chimeSound,
+              chimeVolume: result.chimeVolume,
+              orbClickAction: result.orbClickAction as any,
+              orbCmdClickAction: result.orbCmdClickAction as any,
+              orbCtrlClickAction: result.orbCtrlClickAction as any,
+              orbClickPreset: result.orbClickPreset,
+              orbCmdClickPreset: result.orbCmdClickPreset,
+              orbCtrlClickPreset: result.orbCtrlClickPreset,
+            })
             if (result.clearHistory) {
               const fs = require('fs')
               const path = require('path')

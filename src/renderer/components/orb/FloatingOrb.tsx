@@ -172,7 +172,7 @@ export function FloatingOrb() {
       }
     }
 
-    const onMouseUp = () => {
+    const onMouseUp = (ev: MouseEvent) => {
       isDragging.current = false
       if (rafId) {
         cancelAnimationFrame(rafId)
@@ -184,7 +184,7 @@ export function FloatingOrb() {
       document.removeEventListener('mouseup', onMouseUp)
 
       if (!didDrag.current) {
-        window.carapace?.createSession()
+        window.carapace?.createSession({ cmd: ev.metaKey, ctrl: ev.ctrlKey })
       }
     }
 

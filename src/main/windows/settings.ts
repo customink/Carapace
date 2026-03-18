@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { loadAppSettings } from '../services/app-settings-store'
+import { loadPresets } from '../services/preset-store'
 
 /** Sound entries: [file path, display name] */
 const CHIME_SOUNDS: Array<[string, string]> = [
@@ -29,13 +30,13 @@ const CHIME_SOUNDS: Array<[string, string]> = [
   ['/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/siri/jbl_begin_short.caf', 'Siri Short'],
 ]
 
-export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume: number; orbClickAction: string; clearHistory: boolean } | null> {
+export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume: number; orbClickAction: string; orbCmdClickAction: string; orbCtrlClickAction: string; orbClickPreset: string; orbCmdClickPreset: string; orbCtrlClickPreset: string; clearHistory: boolean } | null> {
   return new Promise((resolve) => {
     const settings = loadAppSettings()
 
     const win = new BrowserWindow({
       width: 420,
-      height: 440,
+      height: 600,
       resizable: false,
       minimizable: false,
       maximizable: false,
@@ -62,10 +63,10 @@ export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume:
       ipcMain.removeAllListeners(channelPreview)
     }
 
-    ipcMain.once(channelOk, (_e, chimeSound: string, chimeVolume: number, orbClickAction: string, clearHistory: boolean) => {
+    ipcMain.once(channelOk, (_e, data: any) => {
       cleanup()
       win.close()
-      resolve({ chimeSound, chimeVolume, orbClickAction, clearHistory })
+      resolve(data)
     })
 
     ipcMain.once(channelCancel, () => {
@@ -85,6 +86,28 @@ export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume:
       cleanup()
       resolve(null)
     })
+
+    const presets = loadPresets()
+    const presetOptionsHtml = (selectedId: string) => presets.map(p => {
+      const sel = p.id === selectedId ? ' selected' : ''
+      return `<option value="${p.id}"${sel}>${p.name}</option>`
+    }).join('')
+
+    function actionSelect(id: string, selected: string, presetId: string, presetSelectId: string): string {
+      const opts = [
+        ['new-session', 'New Session'],
+        ['new-session-bypass', 'New Session (Skip Permissions)'],
+        ['focus-recent', 'Focus Most Recent Terminal'],
+        ['focus-all', 'Bring All Terminals to Front'],
+        ['preset', 'Launch Preset...'],
+      ]
+      const selectHtml = opts.map(([val, label]) => `<option value="${val}"${val === selected ? ' selected' : ''}>${label}</option>`).join('')
+      const presetDisplay = selected === 'preset' ? '' : 'display:none;'
+      const presetOpts = presetOptionsHtml(presetId)
+      const noPresets = presets.length === 0 ? '<option value="">(No presets)</option>' : ''
+      return `<select id="${id}" onchange="togglePreset('${id}','${presetSelectId}')">${selectHtml}</select>
+        <select id="${presetSelectId}" style="margin-top:4px;${presetDisplay}">${noPresets}${presetOpts}</select>`
+    }
 
     const soundOptions = CHIME_SOUNDS.map(([path, name]) => {
       const selected = path === settings.chimeSound ? ' selected' : ''
@@ -162,13 +185,16 @@ export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume:
   <h3>Settings</h3>
 
   <div class="field">
-    <label>Orb Click Action</label>
-    <select id="orbClickAction">
-      <option value="new-session"${settings.orbClickAction === 'new-session' ? ' selected' : ''}>New Session</option>
-      <option value="new-session-bypass"${settings.orbClickAction === 'new-session-bypass' ? ' selected' : ''}>New Session (Skip Permissions)</option>
-      <option value="focus-recent"${settings.orbClickAction === 'focus-recent' ? ' selected' : ''}>Focus Most Recent Terminal</option>
-      <option value="focus-all"${settings.orbClickAction === 'focus-all' ? ' selected' : ''}>Bring All Terminals to Front</option>
-    </select>
+    <label>Click</label>
+    ${actionSelect('orbClick', settings.orbClickAction, settings.orbClickPreset, 'orbClickPreset')}
+  </div>
+  <div class="field">
+    <label>&#8984; Cmd + Click</label>
+    ${actionSelect('orbCmdClick', settings.orbCmdClickAction, settings.orbCmdClickPreset, 'orbCmdClickPreset')}
+  </div>
+  <div class="field">
+    <label>&#8963; Ctrl + Click</label>
+    ${actionSelect('orbCtrlClick', settings.orbCtrlClickAction, settings.orbCtrlClickPreset, 'orbCtrlClickPreset')}
   </div>
 
   <div class="field">
@@ -202,10 +228,15 @@ export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume:
     const { ipcRenderer } = require('electron');
     const chimeSoundEl = document.getElementById('chimeSound');
     const chimeVolumeEl = document.getElementById('chimeVolume');
-    const orbClickEl = document.getElementById('orbClickAction');
     const volLabel = document.getElementById('volLabel');
     const clearBtn = document.getElementById('clearBtn');
     let clearConfirmed = false;
+
+    function togglePreset(selectId, presetSelectId) {
+      const sel = document.getElementById(selectId);
+      const presetSel = document.getElementById(presetSelectId);
+      presetSel.style.display = sel.value === 'preset' ? '' : 'none';
+    }
 
     chimeVolumeEl.addEventListener('input', () => {
       volLabel.textContent = chimeVolumeEl.value + '%';
@@ -227,7 +258,17 @@ export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume:
     }
 
     function submit() {
-      ipcRenderer.send('${channelOk}', chimeSoundEl.value, parseInt(chimeVolumeEl.value), orbClickEl.value, clearConfirmed);
+      ipcRenderer.send('${channelOk}', {
+        chimeSound: chimeSoundEl.value,
+        chimeVolume: parseInt(chimeVolumeEl.value),
+        orbClickAction: document.getElementById('orbClick').value,
+        orbCmdClickAction: document.getElementById('orbCmdClick').value,
+        orbCtrlClickAction: document.getElementById('orbCtrlClick').value,
+        orbClickPreset: document.getElementById('orbClickPreset').value || '',
+        orbCmdClickPreset: document.getElementById('orbCmdClickPreset').value || '',
+        orbCtrlClickPreset: document.getElementById('orbCtrlClickPreset').value || '',
+        clearHistory: clearConfirmed,
+      });
     }
 
     document.addEventListener('keydown', (e) => {

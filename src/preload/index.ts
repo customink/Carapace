@@ -7,7 +7,7 @@ const api = {
   getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.SETTINGS_GET),
   getUsage: () => ipcRenderer.invoke(IPC_CHANNELS.USAGE_GET),
 
-  createSession: () => ipcRenderer.send(IPC_CHANNELS.SESSION_CREATE),
+  createSession: (modifiers?: { cmd?: boolean; ctrl?: boolean }) => ipcRenderer.send(IPC_CHANNELS.SESSION_CREATE, modifiers || {}),
   createSessionBypass: () => ipcRenderer.send(IPC_CHANNELS.SESSION_CREATE_BYPASS),
   showContextMenu: () => ipcRenderer.send(IPC_CHANNELS.ORB_CONTEXT_MENU),
   focusSession: (pid: number) => ipcRenderer.send(IPC_CHANNELS.SESSION_FOCUS, pid),
