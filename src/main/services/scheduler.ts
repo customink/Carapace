@@ -6,7 +6,7 @@ import * as ptyManager from './pty-manager'
 import type { ScheduledPrompt } from '@shared/types/scheduled-prompt'
 
 const SCHEDULER_INTERVAL_MS = 60_000
-const PROMPT_DELAY_MS = 11_000 // 8s startup grace + 3s buffer
+const MAX_WAIT_MS = 30_000 // max time to wait for Claude prompt to appear
 
 let intervalId: ReturnType<typeof setInterval> | null = null
 const firedToday = new Map<string, string>()
@@ -79,29 +79,48 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
   // Show dock since we have a terminal now
   app.dock?.show()
 
-  // Detect trust dialog during startup — bring to front immediately
+  // Watch PTY output to detect trust dialog and Claude ready prompt
   let trustDetected = false
-  ptyManager.setDataInterceptor(ptyId, (data) => {
-    const lower = data.toLowerCase()
-    if (!trustDetected && (lower.includes('trust') || lower.includes('(y/n)') || lower.includes('yes, proceed'))) {
-      trustDetected = true
-      if (!win.isDestroyed()) {
-        win.show()
-        win.focus()
-      }
-    }
-  })
+  let promptInjected = false
 
-  // After startup grace, inject the prompt
-  setTimeout(() => {
+  const maxTimer = setTimeout(() => {
+    // Safety net: inject prompt after max wait even if we didn't detect the prompt
+    if (!promptInjected) injectPrompt()
+  }, MAX_WAIT_MS)
+
+  function injectPrompt() {
+    if (promptInjected) return
+    promptInjected = true
+    clearTimeout(maxTimer)
     ptyManager.setDataInterceptor(ptyId, null)
     if (win.isDestroyed()) return
 
-    // Write the prompt — this also sets bellArmed and isThinking
-    ptyManager.writeToPty(ptyId, schedule.prompt + '\r')
+    // Small delay after detecting prompt to let Claude fully render
+    setTimeout(() => {
+      if (win.isDestroyed()) return
+      ptyManager.writeToPty(ptyId, schedule.prompt + '\r')
+      const session = ptyManager.getByPtyId(ptyId)
+      if (session) session.scheduledBringToFront = true
+    }, 500)
+  }
 
-    // Mark session so the attention handler brings window to front
-    const session = ptyManager.getByPtyId(ptyId)
-    if (session) session.scheduledBringToFront = true
-  }, PROMPT_DELAY_MS)
+  ptyManager.setDataInterceptor(ptyId, (data) => {
+    if (win.isDestroyed()) return
+
+    const lower = data.toLowerCase()
+
+    // Trust dialog detection — bring to front immediately
+    if (!trustDetected && (lower.includes('trust') || lower.includes('(y/n)') || lower.includes('yes, proceed'))) {
+      trustDetected = true
+      win.show()
+      win.focus()
+    }
+
+    // Detect Claude ready prompt (❯ or > at start of line)
+    // The prompt character appears after Claude Code finishes initializing
+    const stripped = data.replace(/\x1b\[[0-9;]*[a-zA-Z?h-l]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
+    if (!promptInjected && (stripped.includes('❯') || stripped.includes('›') || /^\s*> /m.test(stripped))) {
+      injectPrompt()
+    }
+  })
 }
