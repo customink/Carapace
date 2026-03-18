@@ -104,24 +104,32 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
     }, 500)
   }
 
+  // Accumulate PTY output to detect patterns across chunked data
+  let outputBuffer = ''
+
   ptyManager.setDataInterceptor(ptyId, (data) => {
     if (win.isDestroyed()) return
 
-    const lower = data.toLowerCase()
+    // Strip ANSI escapes for pattern matching
+    const clean = data.replace(/\x1b\[[0-9;]*[a-zA-Z?h-l]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').replace(/[\x1b]/g, '')
+    outputBuffer += clean
 
-    // Trust dialog detection — auto-accept so scheduled prompts aren't blocked
-    if (!trustDetected && (lower.includes('trust') || lower.includes('(y/n)') || lower.includes('yes, proceed'))) {
-      trustDetected = true
-      // Auto-press Enter to accept trust dialog
-      setTimeout(() => {
-        ptyManager.writeToPty(ptyId, '\r')
-      }, 300)
+    // Trust dialog detection — auto-accept so scheduled prompts aren't blocked.
+    // Claude Code asks about trusting the directory during first run.
+    // Broad matching: any mention of "trust", "yes", permission-like prompts.
+    if (!trustDetected) {
+      const lower = outputBuffer.toLowerCase()
+      if (lower.includes('trust') || lower.includes('do you want') || lower.includes('(yes)') || lower.includes('y/n') || lower.includes('allow')) {
+        trustDetected = true
+        // Send 'y' + Enter to accept — some prompts expect 'y', others just Enter
+        setTimeout(() => {
+          ptyManager.writeToPty(ptyId, 'y\r')
+        }, 500)
+      }
     }
 
     // Detect Claude ready prompt (❯ or > at start of line)
-    // The prompt character appears after Claude Code finishes initializing
-    const stripped = data.replace(/\x1b\[[0-9;]*[a-zA-Z?h-l]/g, '').replace(/\x1b\][^\x07]*\x07/g, '')
-    if (!promptInjected && (stripped.includes('❯') || stripped.includes('›') || /^\s*> /m.test(stripped))) {
+    if (!promptInjected && (clean.includes('❯') || clean.includes('›') || /^\s*> /m.test(clean) || outputBuffer.includes('Cost:'))) {
       injectPrompt()
     }
   })
