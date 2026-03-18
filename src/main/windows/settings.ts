@@ -29,13 +29,13 @@ const CHIME_SOUNDS: Array<[string, string]> = [
   ['/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/siri/jbl_begin_short.caf', 'Siri Short'],
 ]
 
-export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume: number; clearHistory: boolean } | null> {
+export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume: number; orbClickAction: string; clearHistory: boolean } | null> {
   return new Promise((resolve) => {
     const settings = loadAppSettings()
 
     const win = new BrowserWindow({
       width: 420,
-      height: 380,
+      height: 440,
       resizable: false,
       minimizable: false,
       maximizable: false,
@@ -62,10 +62,10 @@ export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume:
       ipcMain.removeAllListeners(channelPreview)
     }
 
-    ipcMain.once(channelOk, (_e, chimeSound: string, chimeVolume: number, clearHistory: boolean) => {
+    ipcMain.once(channelOk, (_e, chimeSound: string, chimeVolume: number, orbClickAction: string, clearHistory: boolean) => {
       cleanup()
       win.close()
-      resolve({ chimeSound, chimeVolume, clearHistory })
+      resolve({ chimeSound, chimeVolume, orbClickAction, clearHistory })
     })
 
     ipcMain.once(channelCancel, () => {
@@ -162,6 +162,16 @@ export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume:
   <h3>Settings</h3>
 
   <div class="field">
+    <label>Orb Click Action</label>
+    <select id="orbClickAction">
+      <option value="new-session"${settings.orbClickAction === 'new-session' ? ' selected' : ''}>New Session</option>
+      <option value="new-session-bypass"${settings.orbClickAction === 'new-session-bypass' ? ' selected' : ''}>New Session (Skip Permissions)</option>
+      <option value="focus-recent"${settings.orbClickAction === 'focus-recent' ? ' selected' : ''}>Focus Most Recent Terminal</option>
+      <option value="focus-all"${settings.orbClickAction === 'focus-all' ? ' selected' : ''}>Bring All Terminals to Front</option>
+    </select>
+  </div>
+
+  <div class="field">
     <label>Chime Sound</label>
     <div class="sound-row">
       <select id="chimeSound">${soundOptions}</select>
@@ -192,6 +202,7 @@ export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume:
     const { ipcRenderer } = require('electron');
     const chimeSoundEl = document.getElementById('chimeSound');
     const chimeVolumeEl = document.getElementById('chimeVolume');
+    const orbClickEl = document.getElementById('orbClickAction');
     const volLabel = document.getElementById('volLabel');
     const clearBtn = document.getElementById('clearBtn');
     let clearConfirmed = false;
@@ -216,7 +227,7 @@ export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume:
     }
 
     function submit() {
-      ipcRenderer.send('${channelOk}', chimeSoundEl.value, parseInt(chimeVolumeEl.value), clearConfirmed);
+      ipcRenderer.send('${channelOk}', chimeSoundEl.value, parseInt(chimeVolumeEl.value), orbClickEl.value, clearConfirmed);
     }
 
     document.addEventListener('keydown', (e) => {

@@ -132,8 +132,39 @@ app.whenReady().then(() => {
   createOrbWindow()
 
   // Session creation
+  // Orb click — behavior depends on settings
   ipcMain.on(IPC_CHANNELS.SESSION_CREATE, () => {
-    spawnClaudeSession(false)
+    const settings = loadAppSettings()
+    switch (settings.orbClickAction) {
+      case 'new-session-bypass':
+        spawnClaudeSession(true)
+        break
+      case 'focus-recent': {
+        const sessions = ptyManager.getAllSessions()
+        if (sessions.length > 0) {
+          const recent = sessions[sessions.length - 1]
+          focusSessionTerminal(recent.pid)
+        } else {
+          spawnClaudeSession(false)
+        }
+        break
+      }
+      case 'focus-all': {
+        const windowIds = ptyManager.getAllWindowIds()
+        if (windowIds.length > 0) {
+          for (const wid of windowIds) {
+            const win = BrowserWindow.fromId(wid)
+            if (win && !win.isDestroyed()) win.show()
+          }
+        } else {
+          spawnClaudeSession(false)
+        }
+        break
+      }
+      case 'new-session':
+      default:
+        spawnClaudeSession(false)
+    }
   })
 
   ipcMain.on(IPC_CHANNELS.SESSION_CREATE_BYPASS, () => {
@@ -616,7 +647,7 @@ app.whenReady().then(() => {
         click: async () => {
           const result = await showSettingsWindow()
           if (result) {
-            saveAppSettings({ chimeSound: result.chimeSound, chimeVolume: result.chimeVolume })
+            saveAppSettings({ chimeSound: result.chimeSound, chimeVolume: result.chimeVolume, orbClickAction: result.orbClickAction as any })
             if (result.clearHistory) {
               const fs = require('fs')
               const path = require('path')

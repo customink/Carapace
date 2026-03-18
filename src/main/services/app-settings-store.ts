@@ -4,14 +4,18 @@ import { CARAPACE_CACHE_DIR } from '@shared/constants/paths'
 
 const SETTINGS_FILE = join(CARAPACE_CACHE_DIR, 'app-settings.json')
 
+export type OrbClickAction = 'new-session' | 'new-session-bypass' | 'focus-recent' | 'focus-all'
+
 export interface AppSettings {
   chimeSound: string   // filename in /System/Library/Sounds/
   chimeVolume: number  // 0-100
+  orbClickAction: OrbClickAction
 }
 
 const DEFAULTS: AppSettings = {
   chimeSound: '/System/Library/Sounds/Glass.aiff',
   chimeVolume: 50,
+  orbClickAction: 'new-session',
 }
 
 export function loadAppSettings(): AppSettings {
