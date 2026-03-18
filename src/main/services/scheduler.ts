@@ -109,11 +109,13 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
 
     const lower = data.toLowerCase()
 
-    // Trust dialog detection — bring to front immediately
+    // Trust dialog detection — auto-accept so scheduled prompts aren't blocked
     if (!trustDetected && (lower.includes('trust') || lower.includes('(y/n)') || lower.includes('yes, proceed'))) {
       trustDetected = true
-      win.show()
-      win.focus()
+      // Auto-press Enter to accept trust dialog
+      setTimeout(() => {
+        ptyManager.writeToPty(ptyId, '\r')
+      }, 300)
     }
 
     // Detect Claude ready prompt (❯ or > at start of line)
