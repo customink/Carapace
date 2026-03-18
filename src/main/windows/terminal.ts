@@ -26,6 +26,7 @@ export interface TerminalWindowOptions {
   title?: string
   shellTab?: boolean
   shellTabNames?: string[]
+  show?: boolean // default true; false for background-spawned scheduled sessions
 }
 
 export function createTerminalWindow(options: TerminalWindowOptions): BrowserWindow {
@@ -82,7 +83,7 @@ export function createTerminalWindow(options: TerminalWindowOptions): BrowserWin
     }
   })
 
-  win.show()
+  if (options.show !== false) win.show()
 
   return win
 }

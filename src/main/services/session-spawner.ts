@@ -27,7 +27,7 @@ let spawnCount = 0
  * Spawn a new Claude Code session in an embedded Electron terminal window.
  * Uses xterm.js + node-pty for a fully controlled terminal experience.
  */
-export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string, colorOverride?: string, shellTab?: boolean, existingPtyId?: string, label?: string, shellTabNames?: string[]): void {
+export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string, colorOverride?: string, shellTab?: boolean, existingPtyId?: string, label?: string, shellTabNames?: string[], background?: boolean): { ptyId: string; win: import('electron').BrowserWindow } {
   const color = colorOverride || SESSION_COLORS[spawnCount % SESSION_COLORS.length]!
   spawnCount++
 
@@ -47,10 +47,12 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
   })
 
   // Ensure dock is visible so terminal windows can show, with colored orb icon
-  setDockIcon(color)
-  app.dock?.show()
+  if (!background) {
+    setDockIcon(color)
+    app.dock?.show()
+  }
 
-  const win = createTerminalWindow({ color, ptyId, title: displayTitle, shellTab, shellTabNames })
+  const win = createTerminalWindow({ color, ptyId, title: displayTitle, shellTab, shellTabNames, show: !background })
 
   // Wait for the renderer to be ready, then create the PTY(s)
   win.webContents.once('did-finish-load', () => {
@@ -119,6 +121,8 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
       }
     })
   })
+
+  return { ptyId, win }
 }
 
 /**

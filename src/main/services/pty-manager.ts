@@ -29,6 +29,10 @@ export interface PtySession {
   inputBuffer: string
   /** Shell tab names for persistence on revive */
   shellTabNames?: string[]
+  /** Optional interceptor for PTY data — used by scheduler to detect trust dialog */
+  onDataInterceptor?: ((data: string) => void) | null
+  /** If true, bring window to front on first end_turn (scheduled session) */
+  scheduledBringToFront?: boolean
 }
 
 const sessions = new Map<string, PtySession>()
@@ -259,6 +263,9 @@ export function createPty(options: {
     if (win && !win.isDestroyed()) {
       win.webContents.send('terminal:data', data)
     }
+
+    // Call interceptor if set (used by scheduler to detect trust dialog)
+    session.onDataInterceptor?.(data)
 
     // PTY output does NOT reset the idle timer. Claude Code's status line
     // contains real text (model names, token counts) that is indistinguishable
@@ -496,6 +503,15 @@ export function getByEncodedCwd(encodedDir: string): PtySession[] {
     if (encoded === encodedDir) results.push(session)
   }
   return results
+}
+
+export function getByPtyId(ptyId: string): PtySession | undefined {
+  return sessions.get(ptyId)
+}
+
+export function setDataInterceptor(ptyId: string, cb: ((data: string) => void) | null): void {
+  const session = sessions.get(ptyId)
+  if (session) session.onDataInterceptor = cb
 }
 
 

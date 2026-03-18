@@ -18,6 +18,9 @@ import { showSlackComposeDialog } from './windows/slack-compose'
 import { getLastAssistantResponse } from './services/jsonl-parser'
 import { detectActiveProcesses } from './services/process-detector'
 import { getCachedSessions, invalidateCache, discoverSessionsAsync } from './services/session-discovery'
+import { loadSchedules, addSchedule, updateSchedule, deleteSchedule } from './services/schedule-store'
+import { startScheduler, stopScheduler, fireSchedule } from './services/scheduler'
+import { showScheduleDialog } from './windows/schedule-dialog'
 import { SESSION_COLORS } from '@shared/constants/colors'
 
 // Set app name before anything else — shows "Carapace" in Dock tooltip and menu bar
@@ -97,9 +100,21 @@ app.whenReady().then(() => {
   registerIpcHandlers()
   registerTerminalIpc()
   startSessionMonitor()
+  startScheduler()
 
   // Play ding and notify orb when a terminal needs attention
   ptyManager.onAttention((pid) => {
+    // For scheduled sessions: bring window to front on first end_turn
+    const session = ptyManager.getByPid(pid)
+    if (session?.scheduledBringToFront) {
+      const termWin = BrowserWindow.fromId(session.windowId)
+      if (termWin && !termWin.isDestroyed()) {
+        termWin.show()
+        termWin.focus()
+      }
+      session.scheduledBringToFront = false
+    }
+
     const orb = getOrbWindow()
     if (orb && !orb.isDestroyed()) {
       orb.webContents.send(IPC_CHANNELS.SESSION_ATTENTION, pid)
@@ -668,6 +683,47 @@ app.whenReady().then(() => {
           })
         }
       },
+      (() => {
+        const schedules = loadSchedules()
+        return {
+          label: 'Scheduled Prompts',
+          submenu: [
+            ...schedules.map((sched) => ({
+              label: `${sched.enabled ? '' : '(off) '}${sched.name} — ${sched.hour.toString().padStart(2, '0')}:${(sched.minute || 0).toString().padStart(2, '0')}`,
+              submenu: [
+                {
+                  label: sched.enabled ? 'Disable' : 'Enable',
+                  click: () => updateSchedule(sched.id, { ...sched, enabled: !sched.enabled }),
+                },
+                {
+                  label: 'Edit...',
+                  click: async () => {
+                    const result = await showScheduleDialog(sched)
+                    if (result) updateSchedule(sched.id, result as any)
+                  },
+                },
+                {
+                  label: 'Run Now',
+                  click: () => fireSchedule(sched),
+                },
+                { type: 'separator' as const },
+                {
+                  label: 'Delete',
+                  click: () => deleteSchedule(sched.id),
+                },
+              ],
+            })),
+            ...(schedules.length > 0 ? [{ type: 'separator' as const }] : []),
+            {
+              label: 'New Schedule...',
+              click: async () => {
+                const result = await showScheduleDialog()
+                if (result) addSchedule(result as any)
+              },
+            },
+          ],
+        }
+      })(),
       {
         label: 'Settings...',
         click: async () => {
@@ -817,6 +873,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   stopSessionMonitor()
+  stopScheduler()
   ptyManager.destroyAll()
 })
 
