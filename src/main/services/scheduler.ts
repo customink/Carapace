@@ -124,18 +124,29 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
     // Trust dialog: detect "trust" OR "safety check" OR "enter to confirm"
     // and auto-press Enter to accept option 1 (already pre-selected ❯)
     if (!trustDetected && !trustAccepted) {
-      if (lower.includes('trust') || lower.includes('safety check') || lower.includes('enter to confirm')) {
+      if (lower.includes('safety check') || lower.includes('enter to confirm') || lower.includes('trust this folder')) {
         trustDetected = true
+        console.log('[scheduler] Trust dialog detected, will auto-accept in 1.5s')
         // Wait for the full menu to render, then press Enter
         setTimeout(() => {
           if (win.isDestroyed()) return
           trustAccepted = true
-          // Write directly to PTY to bypass writeToPty input tracking
           const session = ptyManager.getByPtyId(ptyId)
           if (session) {
+            console.log('[scheduler] Sending Enter to accept trust dialog')
+            // Try both \r and \n — different PTY implementations may need different line endings
             session.pty.write('\r')
+            // Also try again after a short delay in case the first one was too early
+            setTimeout(() => {
+              if (!win.isDestroyed() && session.pty) {
+                console.log('[scheduler] Sending Enter again (retry)')
+                session.pty.write('\r')
+              }
+            }, 500)
+          } else {
+            console.log('[scheduler] ERROR: no session found for ptyId', ptyId)
           }
-        }, 1000)
+        }, 1500)
         return
       }
     }
