@@ -82,7 +82,7 @@ export function createOrbWindow(): BrowserWindow {
   // The visual content (orb + mini-orbs) is inset ~29px from the window edges.
   // Allow the transparent margin to go off-screen so the orb can sit near edges.
   const VISUAL_INSET_X = 60
-  const VISUAL_INSET_Y = 170
+  const VISUAL_INSET_Y = 340
 
   const FRICTION = 0.82
   const BOUNCE = 0.3
