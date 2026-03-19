@@ -49,7 +49,7 @@
         { "target": "dmg" },
         { "target": "zip" }
       ],
-      "identity": null
+      "identity": "-"
     },
     "directories": {
       "output": "dist"
