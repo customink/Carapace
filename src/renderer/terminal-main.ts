@@ -54,6 +54,7 @@ declare global {
       showContextMenu: (hasSelection: boolean) => void
       getInputBuffer: () => Promise<string>
       clearPrompt: () => void
+      queryFileTreeDrag: () => Promise<string | null>
       saveAsPreset: () => void
       slackCompose: () => void
       onTitleUpdated: (callback: (title: string) => void) => () => void
@@ -915,6 +916,23 @@ async function init() {
   }
 
   window.addEventListener('resize', handleResize)
+
+  // Check for pending file tree drag when terminal gets focus or click
+  // This handles the cross-window "drag" from file tree to terminal
+  window.addEventListener('focus', async () => {
+    const path = await window.carapaceTerminal.queryFileTreeDrag()
+    if (path) {
+      const escaped = path.includes(' ') ? `"${path}"` : path
+      const st = getActiveShellTab()
+      if (activeTab === 'claude' || !st) {
+        window.carapaceTerminal.sendData(escaped + ' ')
+        claudeTerminal.focus()
+      } else {
+        window.carapaceTerminal.shellSendData(st.id, escaped + ' ')
+        st.terminal.focus()
+      }
+    }
+  })
 
   // Focus active terminal
   claudeTerminal.focus()

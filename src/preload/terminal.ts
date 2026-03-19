@@ -147,6 +147,9 @@ const terminalApi = {
   getInputBuffer: () => ipcRenderer.invoke('terminal:get-input-buffer'),
   clearPrompt: () => ipcRenderer.send('terminal:clear-prompt'),
 
+  // File tree drag query — check if there's a pending drag path
+  queryFileTreeDrag: () => ipcRenderer.invoke('terminal:query-filetree-drag'),
+
   // Save as preset
   saveAsPreset: () => ipcRenderer.send('terminal:save-as-preset'),
 

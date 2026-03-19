@@ -276,6 +276,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
   .node.dir .name { font-weight: 500; }
   .node.file .name { color: rgba(255,255,255,0.65); }
   .node.file:active { background: rgba(255,255,255,0.1); }
+  .node.dragging-item { opacity: 0.5; background: rgba(255,255,255,0.08); }
   .node .rel-path {
     font-size: 10px;
     color: rgba(255,255,255,0.25);
@@ -474,16 +475,21 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
 
         let loaded = false;
 
-        // Click row → insert path into terminal (both files and folders)
-        row.addEventListener('click', (e) => {
-          e.stopPropagation();
-          // If clicking the arrow on a folder, toggle instead of inserting
-          if (entry.isDir && e.target === arrow) return;
-          ipcRenderer.send('filetree-clickinsert-${parentWin.id}', entry.path);
+        if (!entry.isDir) {
+          // Click a file to insert its path into the terminal prompt
+          row.addEventListener('click', (e) => {
+            e.stopPropagation();
+            ipcRenderer.send('filetree-clickinsert-${parentWin.id}', entry.path);
+          });
+        }
+
+        // Drag-to-terminal: on mousedown, store path globally so terminal can consume on focus
+        row.addEventListener('mousedown', (e) => {
+          if (e.button !== 0) return;
+          ipcRenderer.send('filetree:drag-set', entry.path);
         });
 
         if (entry.isDir) {
-          // Arrow click OR double-click toggles folder open/close
           const toggleFolder = async () => {
             const isOpen = childContainer.classList.contains('open');
             if (isOpen) {
@@ -498,8 +504,8 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
               arrow.classList.add('open');
             }
           };
-          arrow.addEventListener('click', (e) => { e.stopPropagation(); toggleFolder(); });
-          row.addEventListener('dblclick', (e) => { e.stopPropagation(); toggleFolder(); });
+          // Click on folder row toggles open/close
+          row.addEventListener('click', (e) => { e.stopPropagation(); toggleFolder(); });
         }
 
         row.addEventListener('contextmenu', (e) => {

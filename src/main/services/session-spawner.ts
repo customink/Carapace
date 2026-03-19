@@ -421,6 +421,24 @@ export function registerTerminalIpc(): void {
     })
   })
 
+  // File tree drag — global pending path, consumed by terminal on focus
+  let pendingFileTreeDragPath: string | null = null
+  let pendingDragTimeout: ReturnType<typeof setTimeout> | null = null
+
+  ipcMain.on('filetree:drag-set', (_e, filePath: string) => {
+    pendingFileTreeDragPath = filePath
+    // Auto-clear after 5s if not consumed
+    if (pendingDragTimeout) clearTimeout(pendingDragTimeout)
+    pendingDragTimeout = setTimeout(() => { pendingFileTreeDragPath = null }, 5000)
+  })
+
+  ipcMain.handle('terminal:query-filetree-drag', () => {
+    const p = pendingFileTreeDragPath
+    pendingFileTreeDragPath = null
+    if (pendingDragTimeout) { clearTimeout(pendingDragTimeout); pendingDragTimeout = null }
+    return p
+  })
+
   // Get the current input buffer (what user has typed but not sent)
   ipcMain.handle('terminal:get-input-buffer', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
