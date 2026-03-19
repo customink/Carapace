@@ -473,17 +473,18 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
         childContainer.className = 'children';
 
         let loaded = false;
-        if (!entry.isDir) {
-          // Click a file to insert its path into the terminal prompt
-          row.addEventListener('click', (e) => {
-            e.stopPropagation();
-            ipcRenderer.send('filetree-clickinsert-${parentWin.id}', entry.path);
-          });
-        }
+
+        // Click row → insert path into terminal (both files and folders)
+        row.addEventListener('click', (e) => {
+          e.stopPropagation();
+          // If clicking the arrow on a folder, toggle instead of inserting
+          if (entry.isDir && e.target === arrow) return;
+          ipcRenderer.send('filetree-clickinsert-${parentWin.id}', entry.path);
+        });
 
         if (entry.isDir) {
-          row.addEventListener('click', async (e) => {
-            e.stopPropagation();
+          // Arrow click OR double-click toggles folder open/close
+          const toggleFolder = async () => {
             const isOpen = childContainer.classList.contains('open');
             if (isOpen) {
               childContainer.classList.remove('open');
@@ -496,7 +497,9 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
               childContainer.classList.add('open');
               arrow.classList.add('open');
             }
-          });
+          };
+          arrow.addEventListener('click', (e) => { e.stopPropagation(); toggleFolder(); });
+          row.addEventListener('dblclick', (e) => { e.stopPropagation(); toggleFolder(); });
         }
 
         row.addEventListener('contextmenu', (e) => {
