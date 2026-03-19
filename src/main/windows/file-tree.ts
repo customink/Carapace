@@ -483,11 +483,19 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
           });
         }
 
-        // Drag-to-terminal: on mousedown, store path globally so terminal can consume on focus
+        // Long-press (300ms hold) inserts the path into the terminal
+        let holdTimer = null;
         row.addEventListener('mousedown', (e) => {
           if (e.button !== 0) return;
-          ipcRenderer.send('filetree:drag-set', entry.path);
+          holdTimer = setTimeout(() => {
+            holdTimer = null;
+            ipcRenderer.send('filetree-clickinsert-${parentWin.id}', entry.path);
+            row.style.opacity = '0.5';
+            setTimeout(() => { row.style.opacity = ''; }, 300);
+          }, 300);
         });
+        row.addEventListener('mouseup', () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } });
+        row.addEventListener('mouseleave', () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } });
 
         if (entry.isDir) {
           const toggleFolder = async () => {
