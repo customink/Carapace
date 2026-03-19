@@ -435,7 +435,7 @@ export function registerTerminalIpc(): void {
     if (!win) return
     const session = ptyManager.getByWindowId(win.id)
     if (session) {
-      ptyManager.writeToPty(session.ptyId, '\x15') // Ctrl+U clears line
+      ptyManager.writeToPty(session.ptyId, '\x03') // Ctrl+C cancels entire prompt (including multi-line)
     }
   })
 
