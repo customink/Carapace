@@ -81,8 +81,9 @@ export function createOrbWindow(): BrowserWindow {
   // Custom drag — also moves panel if visible
   // The visual content (orb + mini-orbs) is inset ~29px from the window edges.
   // Allow the transparent margin to go off-screen so the orb can sit near edges.
-  // Allow orb to go almost entirely off-screen — keep at least 30px visible
-  const VISUAL_INSET_X = WINDOW_WIDTH - 30
+  // X: keep the orb fully visible (orb is at X=70, radius 35, so left edge is at ~35px)
+  const VISUAL_INSET_X = 40
+  // Y: allow orb to reach top/bottom edges (orb is near top of window)
   const VISUAL_INSET_Y = WINDOW_HEIGHT - 30
 
   const FRICTION = 0.82
