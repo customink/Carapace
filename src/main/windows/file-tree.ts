@@ -149,7 +149,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     color,
     closedChannel: 'terminal:filetree-closed',
     windowMap: treeWindows,
-    ipcChannels: [channelAddToPrompt, channelOpenVSCode, channelOpenFinder, channelStartDrag, channelSaveHidden],
+    ipcChannels: [channelAddToPrompt, channelOpenVSCode, channelOpenFinder, channelStartDrag, channelSaveHidden, `filetree-clickinsert-${parentWin.id}`],
     ipcHandlers: [channelReadDir, channelSearch],
   })
 
@@ -190,11 +190,22 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
   })
 
   // Native file drag for cross-window drag-to-terminal
-  const dragIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAC0lEQVQ4jWNgGAUAAAGAAAGWLqzRAAAAAElFTkSuQmCC')
+  // Create a visible 32x32 file drag icon
+  const dragIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAJZJREFUWEft17ENgDAMBdDbWIQpmIkpmIJFaJiCmdiABkUosnzOT0AU/PLi2E4Msfilxe9XBXYBJ+AB7H8dsFnAA7gCqXflm7sOaAN2wBV4AU/gkH+QH+QmPORXpAHkW+CPbH5JxlvwkH8EsQJH4JxfohbsAnbAEUhfxAiuNqAALoAt2AZOA0fBq4BVwAbMgP/9C96opiAhjPnDAAAAAElFTkSuQmCC')
+
   ipcMain.on(channelStartDrag, (event, filePath: string) => {
     const resolved = path.resolve(filePath)
     if (!resolved.startsWith(cwd)) return
     event.sender.startDrag({ file: resolved, icon: dragIcon })
+  })
+
+  // Also support adding to prompt by typing the path directly into the terminal.
+  // This is the fallback if native drag doesn't work across windows.
+  ipcMain.on(`filetree-clickinsert-${parentWin.id}`, (_e, filePath: string) => {
+    if (!parentWin.isDestroyed()) {
+      const escaped = filePath.includes(' ') ? `"${filePath}"` : filePath
+      parentWin.webContents.send('terminal:type-command', escaped + ' ')
+    }
   })
 
   ipcMain.on(channelSaveHidden, (_e, value: boolean) => {
@@ -264,6 +275,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
   .node .name { overflow: hidden; text-overflow: ellipsis; }
   .node.dir .name { font-weight: 500; }
   .node.file .name { color: rgba(255,255,255,0.65); }
+  .node.file:active { background: rgba(255,255,255,0.1); }
   .node .rel-path {
     font-size: 10px;
     color: rgba(255,255,255,0.25);
@@ -438,6 +450,14 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
         childContainer.className = 'children';
 
         let loaded = false;
+        if (!entry.isDir) {
+          // Click a file to insert its path into the terminal prompt
+          row.addEventListener('click', (e) => {
+            e.stopPropagation();
+            ipcRenderer.send('filetree-clickinsert-${parentWin.id}', entry.path);
+          });
+        }
+
         if (entry.isDir) {
           row.addEventListener('click', async (e) => {
             e.stopPropagation();
