@@ -140,8 +140,9 @@ function setupDragDrop(
   const overlay = document.getElementById('drop-overlay')!
   let dragCounter = 0
 
-  // Only intercept external file drops — let internal drags (sidebar reorder) pass through
+  // Accept file drops AND text/plain drops (from file tree cross-window drag)
   function isExternalFileDrag(e: DragEvent): boolean {
+    if (e.dataTransfer?.types.includes('text/plain')) return true
     return !!e.dataTransfer?.types.includes('Files')
   }
 
@@ -172,6 +173,16 @@ function setupDragDrop(
     e.stopPropagation()
     dragCounter = 0
     overlay.classList.remove('visible')
+
+    // Check for text/plain drop (from file tree cross-window drag)
+    const textPath = e.dataTransfer?.getData('text/plain')
+    if (textPath && textPath.startsWith('/')) {
+      const escaped = textPath.includes(' ') ? `"${textPath}"` : textPath
+      getSendData()(escaped + ' ')
+      getFocus()()
+      return
+    }
+
     if (!e.dataTransfer?.files.length) return
     const paths = Array.from(e.dataTransfer.files)
       .map(f => {

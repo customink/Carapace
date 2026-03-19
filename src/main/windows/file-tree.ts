@@ -195,8 +195,14 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
 
   ipcMain.on(channelStartDrag, (event, filePath: string) => {
     const resolved = path.resolve(filePath)
+    console.log('[file-tree] startDrag:', resolved, 'cwd:', cwd, 'check:', resolved.startsWith(cwd))
     if (!resolved.startsWith(cwd)) return
-    event.sender.startDrag({ file: resolved, icon: dragIcon })
+    try {
+      event.sender.startDrag({ file: resolved, icon: dragIcon })
+      console.log('[file-tree] startDrag succeeded')
+    } catch (err) {
+      console.log('[file-tree] startDrag failed:', err)
+    }
   })
 
   // Also support adding to prompt by typing the path directly into the terminal.
@@ -440,7 +446,10 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
         row.dataset.isDir = entry.isDir ? '1' : '0';
         row.draggable = true;
         row.addEventListener('dragstart', (e) => {
-          e.preventDefault();
+          // Set HTML5 drag data with the file path
+          e.dataTransfer.setData('text/plain', entry.path);
+          e.dataTransfer.effectAllowed = 'copy';
+          // Also trigger native drag for external apps
           ipcRenderer.send('${channelStartDrag}', entry.path);
         });
 
@@ -483,19 +492,6 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
           });
         }
 
-        // Long-press (300ms hold) inserts the path into the terminal
-        let holdTimer = null;
-        row.addEventListener('mousedown', (e) => {
-          if (e.button !== 0) return;
-          holdTimer = setTimeout(() => {
-            holdTimer = null;
-            ipcRenderer.send('filetree-clickinsert-${parentWin.id}', entry.path);
-            row.style.opacity = '0.5';
-            setTimeout(() => { row.style.opacity = ''; }, 300);
-          }, 300);
-        });
-        row.addEventListener('mouseup', () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } });
-        row.addEventListener('mouseleave', () => { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } });
 
         if (entry.isDir) {
           const toggleFolder = async () => {
@@ -569,7 +565,8 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
 
           row.draggable = true;
           row.addEventListener('dragstart', (e) => {
-            e.preventDefault();
+            e.dataTransfer.setData('text/plain', entry.path);
+            e.dataTransfer.effectAllowed = 'copy';
             ipcRenderer.send('${channelStartDrag}', entry.path);
           });
 
