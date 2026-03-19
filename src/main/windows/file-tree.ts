@@ -283,6 +283,18 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  .node .insert-btn {
+    margin-left: auto;
+    padding: 0 4px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.15);
+    cursor: pointer;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .node:hover .insert-btn { opacity: 1; }
+  .node .insert-btn:hover { color: rgba(255,255,255,0.7); }
   .children { display: none; }
   .children.open { display: block; }
   .empty {
@@ -446,6 +458,17 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
         nameEl.textContent = entry.name;
         row.appendChild(nameEl);
 
+        // Insert button — sends path to terminal on click (works for files AND folders)
+        const insertBtn = document.createElement('span');
+        insertBtn.className = 'insert-btn';
+        insertBtn.textContent = '\\u2192'; // → arrow
+        insertBtn.title = 'Insert path into prompt';
+        insertBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          ipcRenderer.send('filetree-clickinsert-${parentWin.id}', entry.path);
+        });
+        row.appendChild(insertBtn);
+
         const childContainer = document.createElement('div');
         childContainer.className = 'children';
 
@@ -540,7 +563,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
           });
 
           row.addEventListener('click', () => {
-            ipcRenderer.send('${channelAddToPrompt}', entry.path);
+            ipcRenderer.send('filetree-clickinsert-${parentWin.id}', entry.path);
           });
 
           searchResults.appendChild(row);
