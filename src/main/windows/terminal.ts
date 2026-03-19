@@ -38,6 +38,7 @@ export function createTerminalWindow(options: TerminalWindowOptions): BrowserWin
     height: 600,
     minWidth: 400,
     minHeight: 300,
+    show: false, // start hidden; shown explicitly below (or kept hidden for background sessions)
     backgroundColor: bgColor,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 12, y: 12 },
@@ -83,7 +84,9 @@ export function createTerminalWindow(options: TerminalWindowOptions): BrowserWin
     }
   })
 
-  if (options.show !== false) win.show()
+  if (options.show !== false) {
+    win.once('ready-to-show', () => win.show())
+  }
 
   return win
 }

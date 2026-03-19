@@ -106,6 +106,7 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
 
   // Accumulate PTY output to detect patterns across chunked data
   let outputBuffer = ''
+  let trustAccepted = false
 
   ptyManager.setDataInterceptor(ptyId, (data) => {
     if (win.isDestroyed()) return
@@ -113,23 +114,30 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
     // Strip ANSI escapes for pattern matching
     const clean = data.replace(/\x1b\[[0-9;]*[a-zA-Z?h-l]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').replace(/[\x1b]/g, '')
     outputBuffer += clean
+    const lower = outputBuffer.toLowerCase()
 
-    // Trust dialog detection — auto-accept so scheduled prompts aren't blocked.
-    // Claude Code asks about trusting the directory during first run.
-    // Broad matching: any mention of "trust", "yes", permission-like prompts.
-    if (!trustDetected) {
-      const lower = outputBuffer.toLowerCase()
-      if (lower.includes('trust') || lower.includes('do you want') || lower.includes('(yes)') || lower.includes('y/n') || lower.includes('allow')) {
-        trustDetected = true
-        // Send 'y' + Enter to accept — some prompts expect 'y', others just Enter
-        setTimeout(() => {
-          ptyManager.writeToPty(ptyId, 'y\r')
-        }, 500)
-      }
+    // Trust dialog detection — this is a numbered menu:
+    //   ❯ 1. Yes, I trust this folder
+    //     2. No, exit
+    //   Enter to confirm
+    // Auto-press Enter to accept option 1 (already selected).
+    if (!trustDetected && !trustAccepted && lower.includes('trust this folder')) {
+      trustDetected = true
+      // Wait a moment for the menu to fully render, then press Enter
+      setTimeout(() => {
+        trustAccepted = true
+        ptyManager.writeToPty(ptyId, '\r')
+      }, 800)
+      return // Don't check for prompt yet — trust dialog is still showing
     }
 
-    // Detect Claude ready prompt (❯ or > at start of line)
-    if (!promptInjected && (clean.includes('❯') || clean.includes('›') || /^\s*> /m.test(clean) || outputBuffer.includes('Cost:'))) {
+    // Don't detect the ready prompt until trust dialog is handled
+    if (trustDetected && !trustAccepted) return
+
+    // Detect Claude ready prompt — the Cost: status line is the most reliable
+    // signal that Claude Code is fully initialized and ready for input.
+    // Don't trigger on ❯ alone since that's also used in the trust menu.
+    if (!promptInjected && outputBuffer.includes('Cost:')) {
       injectPrompt()
     }
   })
