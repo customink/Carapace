@@ -83,7 +83,21 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 - Context bar visualization
 - Quick actions: focus, close, or manage sessions
 
-## Quick Start
+## Install (Pre-built App)
+
+Download the latest `.dmg` from [Releases](https://github.com/customink/Carapace/releases), open it, and drag Carapace to Applications.
+
+**Important — macOS Gatekeeper:** The app is not code-signed. After installing, run this once in Terminal:
+
+```bash
+xattr -cr /Applications/Carapace.app
+```
+
+Then open Carapace normally. Without this step, macOS will show "Carapace is damaged" and refuse to open it.
+
+**Requires:** [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed (`npm i -g @anthropic-ai/claude-code`)
+
+## Build from Source
 
 ```bash
 ./install.sh         # check prerequisites, install deps, build
@@ -97,6 +111,7 @@ npm install          # also runs electron-rebuild for node-pty
 npm run build        # production build to /out
 npx electron out/main/index.js  # run production build
 npm run dev          # dev mode with hot reload
+npm run dist         # build .dmg + .zip installer
 ```
 
 ## Dependencies
