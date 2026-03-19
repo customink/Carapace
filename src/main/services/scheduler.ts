@@ -104,40 +104,47 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
     }, 500)
   }
 
-  // Accumulate PTY output to detect patterns across chunked data
-  let outputBuffer = ''
+  // Accumulate raw PTY output for pattern detection
+  let rawBuffer = ''
   let trustAccepted = false
 
   ptyManager.setDataInterceptor(ptyId, (data) => {
     if (win.isDestroyed()) return
 
-    // Strip ANSI escapes for pattern matching
-    const clean = data.replace(/\x1b\[[0-9;]*[a-zA-Z?h-l]/g, '').replace(/\x1b\][^\x07]*\x07/g, '').replace(/[\x1b]/g, '')
-    outputBuffer += clean
-    const lower = outputBuffer.toLowerCase()
+    rawBuffer += data
 
-    // Trust dialog detection — this is a numbered menu:
-    //   ❯ 1. Yes, I trust this folder
-    //     2. No, exit
-    //   Enter to confirm
-    // Auto-press Enter to accept option 1 (already selected).
-    if (!trustDetected && !trustAccepted && lower.includes('trust this folder')) {
-      trustDetected = true
-      // Wait a moment for the menu to fully render, then press Enter
-      setTimeout(() => {
-        trustAccepted = true
-        ptyManager.writeToPty(ptyId, '\r')
-      }, 800)
-      return // Don't check for prompt yet — trust dialog is still showing
+    // Strip ALL non-printable characters and ANSI for matching
+    const stripped = rawBuffer.replace(/\x1b\[[^\x40-\x7e]*[\x40-\x7e]/g, '')
+                              .replace(/\x1b\][^\x07]*\x07/g, '')
+                              .replace(/\x1b[^[]/g, '')
+                              .replace(/[\x00-\x1f]/g, ' ')
+
+    const lower = stripped.toLowerCase()
+
+    // Trust dialog: detect "trust" OR "safety check" OR "enter to confirm"
+    // and auto-press Enter to accept option 1 (already pre-selected ❯)
+    if (!trustDetected && !trustAccepted) {
+      if (lower.includes('trust') || lower.includes('safety check') || lower.includes('enter to confirm')) {
+        trustDetected = true
+        // Wait for the full menu to render, then press Enter
+        setTimeout(() => {
+          if (win.isDestroyed()) return
+          trustAccepted = true
+          // Write directly to PTY to bypass writeToPty input tracking
+          const session = ptyManager.getByPtyId(ptyId)
+          if (session) {
+            session.pty.write('\r')
+          }
+        }, 1000)
+        return
+      }
     }
 
-    // Don't detect the ready prompt until trust dialog is handled
+    // Don't look for ready prompt until trust is handled
     if (trustDetected && !trustAccepted) return
 
-    // Detect Claude ready prompt — the Cost: status line is the most reliable
-    // signal that Claude Code is fully initialized and ready for input.
-    // Don't trigger on ❯ alone since that's also used in the trust menu.
-    if (!promptInjected && outputBuffer.includes('Cost:')) {
+    // Detect Claude ready: the "Cost:" status line appears after full init
+    if (!promptInjected && lower.includes('cost:')) {
       injectPrompt()
     }
   })
