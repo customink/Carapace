@@ -33,6 +33,8 @@ export interface PtySession {
   onDataInterceptor?: ((data: string) => void) | null
   /** If true, bring window to front on first end_turn (scheduled session) */
   scheduledBringToFront?: boolean
+  /** Claude Code conversation ID (from JSONL filename) for --resume */
+  claudeSessionId?: string
 }
 
 const sessions = new Map<string, PtySession>()
@@ -197,12 +199,14 @@ export function createPty(options: {
   cols: number
   rows: number
   title?: string
+  resumeSessionId?: string // Claude Code session ID to resume via --resume
 }): PtySession {
   // Require node-pty at runtime (native module, externalized from bundle)
   const nodePty = require('node-pty') as typeof import('node-pty')
 
   const claudePath = findClaudePath()
-  const flags = options.bypass ? ' --dangerously-skip-permissions' : ''
+  let flags = options.bypass ? ' --dangerously-skip-permissions' : ''
+  if (options.resumeSessionId) flags += ` --resume ${options.resumeSessionId}`
 
   // Resolve the user's default shell
   const shell = process.env.SHELL || '/bin/zsh'

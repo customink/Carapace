@@ -650,6 +650,8 @@ app.whenReady().then(() => {
                   newPtyId,
                   entry.label || undefined,
                   entry.shellTabNames || undefined,
+                  false, // not background
+                  entry.claudeSessionId || undefined, // resume conversation
                 )
               }
             }

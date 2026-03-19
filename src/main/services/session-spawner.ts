@@ -27,7 +27,7 @@ let spawnCount = 0
  * Spawn a new Claude Code session in an embedded Electron terminal window.
  * Uses xterm.js + node-pty for a fully controlled terminal experience.
  */
-export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string, colorOverride?: string, shellTab?: boolean, existingPtyId?: string, label?: string, shellTabNames?: string[], background?: boolean): { ptyId: string; win: import('electron').BrowserWindow } {
+export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string, colorOverride?: string, shellTab?: boolean, existingPtyId?: string, label?: string, shellTabNames?: string[], background?: boolean, resumeSessionId?: string): { ptyId: string; win: import('electron').BrowserWindow } {
   const color = colorOverride || SESSION_COLORS[spawnCount % SESSION_COLORS.length]!
   spawnCount++
 
@@ -65,6 +65,7 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
       cols: 80,
       rows: 24,
       title,
+      resumeSessionId,
     })
 
     // Restore label and shell tab names from history if reviving
@@ -105,7 +106,7 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
     // Save final label/color/shellTabNames to history before destroying
     const session = ptyManager.getByWindowId(win.id)
     if (session) {
-      updateHistoryEntry(ptyId, { label: session.label, color: session.color, shellTabNames: session.shellTabNames })
+      updateHistoryEntry(ptyId, { label: session.label, color: session.color, shellTabNames: session.shellTabNames, claudeSessionId: session.claudeSessionId })
     }
     ptyManager.destroyPty(ptyId)
     // Destroy all shell tabs for this window

@@ -99,6 +99,13 @@ export function startSessionMonitor(): void {
 
     const ptySessions = ptyManager.getByEncodedCwd(update.projectEncoded)
 
+    // Track the Claude Code session ID for conversation resume
+    for (const ps of ptySessions) {
+      if (!ps.claudeSessionId && update.sessionId) {
+        ps.claudeSessionId = update.sessionId
+      }
+    }
+
     if (count > prevCount && hasPrevious) {
       // end_turn completion detected — Claude is done, fire bell + clear spinner
       for (const ps of ptySessions) {
