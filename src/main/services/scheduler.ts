@@ -82,8 +82,10 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
     true // background
   )
 
-  // Show dock since we have a terminal now
+  // Show dock since we have a terminal now, with orb icon
   app.dock?.show()
+  const { resetDockIcon: resetIcon } = require('./icon-generator')
+  resetIcon()
 
   // Watch PTY output to detect trust dialog and Claude ready prompt
   let trustDetected = false

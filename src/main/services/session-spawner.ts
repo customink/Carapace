@@ -48,8 +48,8 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
 
   // Ensure dock is visible so terminal windows can show, with colored orb icon
   if (!background) {
-    setDockIcon(color)
     app.dock?.show()
+    setDockIcon(color)
   }
 
   const win = createTerminalWindow({ color, ptyId, title: displayTitle, shellTab, shellTabNames, show: !background })

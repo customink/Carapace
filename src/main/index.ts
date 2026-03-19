@@ -879,7 +879,15 @@ app.on('before-quit', () => {
   ptyManager.destroyAll()
 })
 
-// Hide dock icon since this is a panel/accessory app
-// Set the orb as dock icon so it shows when terminals are opened
+// Set the purple orb as the dock icon before hiding
+// This persists so when dock is shown later it uses our icon, not Electron's default
 resetDockIcon()
+// Force dock to re-read our icon after show by setting it again after a tick
+const origDockShow = app.dock?.show.bind(app.dock)
+if (app.dock && origDockShow) {
+  app.dock.show = async () => {
+    await origDockShow()
+    resetDockIcon()
+  }
+}
 app.dock?.hide()
