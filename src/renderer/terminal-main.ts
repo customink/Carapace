@@ -105,6 +105,12 @@ function setupCopyPaste(terminal: Terminal, sendData: (data: string) => void) {
       return false
     }
 
+    // Cmd+Backspace → delete entire line (send Ctrl+U)
+    if (event.metaKey && event.key === 'Backspace') {
+      sendData('\x15')
+      return false
+    }
+
     if (event.metaKey && event.key === 'v') {
       // preventDefault stops the browser from also firing a paste event,
       // which xterm would pick up and send a second copy via onData
