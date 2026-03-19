@@ -1,4 +1,10 @@
 import { BrowserWindow, app } from 'electron'
+import * as fs from 'fs'
+
+function debugLog(msg: string): void {
+  const line = `[${new Date().toISOString()}] ${msg}\n`
+  try { fs.appendFileSync('/tmp/carapace-scheduler.log', line) } catch { /* ok */ }
+}
 import { loadSchedules } from './schedule-store'
 import { loadPresets } from './preset-store'
 import { spawnClaudeSession } from './session-spawner'
@@ -108,6 +114,20 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
   let rawBuffer = ''
   let trustAccepted = false
 
+  // PTY is created asynchronously (after renderer loads). Poll until it exists.
+  function waitForPtyAndSetup() {
+    const session = ptyManager.getByPtyId(ptyId)
+    if (!session) {
+      debugLog(`fireSchedule: waiting for PTY ${ptyId} to be created...`)
+      setTimeout(waitForPtyAndSetup, 500)
+      return
+    }
+    debugLog(`fireSchedule: PTY found, setting interceptor`)
+    setupInterceptor()
+  }
+  waitForPtyAndSetup()
+
+  function setupInterceptor() {
   ptyManager.setDataInterceptor(ptyId, (data) => {
     if (win.isDestroyed()) return
 
@@ -121,10 +141,13 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
 
     const lower = stripped.toLowerCase()
 
-    // Trust dialog: detect "trust" OR "safety check" OR "enter to confirm"
-    // and auto-press Enter to accept option 1 (already pre-selected ❯)
+    // Trust dialog: detect common phrases from the Claude Code trust prompt
     if (!trustDetected && !trustAccepted) {
-      if (lower.includes('safety check') || lower.includes('enter to confirm') || lower.includes('trust this folder')) {
+      // Log buffer growth for debugging
+      if (stripped.length > 20 && stripped.length % 100 < 20) {
+        debugLog(`Buffer (${stripped.length} chars): ${JSON.stringify(stripped.slice(-200))}`)
+      }
+      if (lower.includes('safety') || lower.includes('trust') || lower.includes('enter to confirm')) {
         trustDetected = true
         console.log('[scheduler] Trust dialog detected, will auto-accept in 1.5s')
         // Wait for the full menu to render, then press Enter
@@ -159,4 +182,5 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
       injectPrompt()
     }
   })
+  } // end setupInterceptor
 }
