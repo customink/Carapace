@@ -104,9 +104,13 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
     // Small delay after detecting prompt to let Claude fully render
     setTimeout(() => {
       if (win.isDestroyed()) return
+      debugLog(`injectPrompt: writing prompt (${schedule.prompt.length} chars) to ptyId=${ptyId}`)
       ptyManager.writeToPty(ptyId, schedule.prompt + '\r')
       const session = ptyManager.getByPtyId(ptyId)
-      if (session) session.scheduledBringToFront = true
+      if (session) {
+        session.scheduledBringToFront = true
+        debugLog(`injectPrompt: bellArmed=${session.bellArmed}, isThinking=${session.isThinking}, cwd=${session.cwd}`)
+      }
     }, 500)
   }
 
