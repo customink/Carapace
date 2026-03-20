@@ -22,7 +22,7 @@ export function createOrbWindow(): BrowserWindow {
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
     x: -20,
-    y: -20,
+    y: -100,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
