@@ -15,7 +15,7 @@ function darkenColor(hex: string, factor = 0.45): string {
 
 const MAIN_ORB_SIZE = 70
 const CENTER_X = 70   // main orb on the left
-const CENTER_Y = 50   // near top of 280px window
+const CENTER_Y = 140  // centered in 380px window
 const PILL_LEFT = CENTER_X + MAIN_ORB_SIZE / 2 + 12  // right edge of orb + gap
 const PILL_HEIGHT = 26
 const PILL_GAP = 6
