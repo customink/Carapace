@@ -96,18 +96,20 @@ export function FloatingOrb() {
     const n = sessionSlice.length
     if (n === 0) return []
 
-    // Pills arc downward from the right side of the orb (0° = 3 o'clock, positive = below).
-    // Starts at -10° (slightly above center) and fans downward.
-    const arcRadius = MAIN_ORB_SIZE / 2 + 16
-    const perPill = n <= 5 ? 16 : 20
-    const totalSpread = Math.min((n - 1) * perPill, 80)
-    const stepDeg = n > 1 ? totalSpread / (n - 1) : 0
+    // Pills arc around the right side of the orb.
+    // Distribute along an arc from -spreadAngle to +spreadAngle (0 = 3 o'clock).
+    // New pills appear above existing ones (lowest index = topmost).
+    const arcRadius = MAIN_ORB_SIZE / 2 + 16 // distance from orb center to pill left edge
+    const perPill = n <= 5 ? 16 : 20 // more spacing after 5 pills
+    const spreadAngle = Math.min(n * perPill, 80) // degrees, grows with count, max 80°
+    const stepDeg = n > 1 ? (spreadAngle * 2) / (n - 1) : 0
 
+    // Find hovered index for spread effect
     const hovIdx = sessionSlice.findIndex(s => s.id === hoveredPillId)
 
     return sessionSlice.map((session, i) => {
-      // Start at -10° and go downward
-      let angleDeg = -10 + stepDeg * i
+      // Base angle: top to bottom (negative = above center, positive = below)
+      let angleDeg = n > 1 ? -spreadAngle + stepDeg * i : 0
 
       // Push neighbors apart when one pill is hovered — distance-based falloff
       if (hovIdx >= 0 && i !== hovIdx) {
