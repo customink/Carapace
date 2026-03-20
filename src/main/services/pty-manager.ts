@@ -354,6 +354,14 @@ export function resizePty(ptyId: string, cols: number, rows: number): void {
 export function destroyPty(ptyId: string): void {
   const session = sessions.get(ptyId)
   if (session) {
+    // Save session data to history before destroying (ensures claudeSessionId persists)
+    const { updateHistoryEntry } = require('./session-history')
+    updateHistoryEntry(ptyId, {
+      label: session.label,
+      color: session.color,
+      shellTabNames: session.shellTabNames,
+      claudeSessionId: session.claudeSessionId,
+    })
     session.pty.kill()
     sessions.delete(ptyId)
     updateDockVisibility()

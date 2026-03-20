@@ -10,6 +10,7 @@ import { parseSessionJsonl } from '../services/jsonl-parser'
 import { PROJECTS_DIR } from '@shared/constants/paths'
 import { formatModelName } from '@shared/utils/format'
 import * as ptyManager from '../services/pty-manager'
+import { updateHistoryEntry } from '../services/session-history'
 import type { SessionUpdate } from '../services/session-monitor'
 import type { SessionState } from '@shared/types/session'
 
@@ -99,10 +100,13 @@ export function startSessionMonitor(): void {
 
     const ptySessions = ptyManager.getByEncodedCwd(update.projectEncoded)
 
-    // Track the Claude Code session ID for conversation resume
+    // Track the Claude Code session ID for conversation resume.
+    // Save to history immediately so it persists even if the app crashes or
+    // the session is closed via context menu (bypassing the window close handler).
     for (const ps of ptySessions) {
       if (!ps.claudeSessionId && update.sessionId) {
         ps.claudeSessionId = update.sessionId
+        updateHistoryEntry(ps.ptyId, { claudeSessionId: update.sessionId })
       }
     }
 
