@@ -1,0 +1,7 @@
+name: carapace
+tier: tier_4
+description: Visual menu-bar app for managing Claude Code sessions
+language: TypeScript
+framework: React
+lifecycle: generally_available
+owner: accounts
