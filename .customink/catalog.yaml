@@ -5,3 +5,5 @@ language: TypeScript
 framework: React
 lifecycle: generally_available
 owner: accounts
+tags:
+  node: "20"
