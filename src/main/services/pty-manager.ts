@@ -1,6 +1,7 @@
 import { BrowserWindow, app } from 'electron'
 import { execSync } from 'child_process'
 import type { IPty } from 'node-pty'
+import { updateHistoryEntry } from './session-history'
 
 export interface PtySession {
   ptyId: string
@@ -355,7 +356,6 @@ export function destroyPty(ptyId: string): void {
   const session = sessions.get(ptyId)
   if (session) {
     // Save session data to history before destroying (ensures claudeSessionId persists)
-    const { updateHistoryEntry } = require('./session-history')
     updateHistoryEntry(ptyId, {
       label: session.label,
       color: session.color,
