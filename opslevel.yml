@@ -1,6 +1,8 @@
 ---
 version: 1
 component:
+  name: "carapace"
+  type: "service"
   tags:
     - key: "node"
       value: "20"
