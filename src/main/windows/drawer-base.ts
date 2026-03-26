@@ -204,6 +204,8 @@ export interface DrawerConfig {
   ipcChannels?: string[]
   /** Additional IPC handle names to removeHandler on cleanup */
   ipcHandlers?: string[]
+  /** Which side of the parent to anchor: 'left' (default) or 'right' */
+  side?: 'left' | 'right'
 }
 
 export interface DrawerResult {
@@ -218,7 +220,7 @@ export interface DrawerResult {
  * Returns the window and computed colors so the caller can build its HTML.
  */
 export function createDrawerWindow(config: DrawerConfig): DrawerResult | null {
-  const { parentWin, width, color, closedChannel, windowMap, ipcChannels, ipcHandlers } = config
+  const { parentWin, width, color, closedChannel, windowMap, ipcChannels, ipcHandlers, side = 'left' } = config
 
   // Toggle: if already open, close it
   const existing = windowMap.get(parentWin.id)
@@ -238,7 +240,7 @@ export function createDrawerWindow(config: DrawerConfig): DrawerResult | null {
   const win = new BrowserWindow({
     width,
     height: parentBounds.height,
-    x: parentBounds.x - width,
+    x: side === 'right' ? parentBounds.x + parentBounds.width : parentBounds.x - width,
     y: parentBounds.y,
     frame: false,
     transparent: false,
@@ -259,13 +261,14 @@ export function createDrawerWindow(config: DrawerConfig): DrawerResult | null {
 
   windowMap.set(parentWin.id, win)
 
-  // Follow parent — keep drawer anchored to parent's left edge, match height
+  // Follow parent — keep drawer anchored to parent's edge, match height
   let resizing = false
   const updatePosition = () => {
     if (win.isDestroyed() || resizing) return
     const b = parentWin.getBounds()
     const drawerW = win.getBounds().width
-    win.setBounds({ x: b.x - drawerW, y: b.y, width: drawerW, height: b.height })
+    const x = side === 'right' ? b.x + b.width : b.x - drawerW
+    win.setBounds({ x, y: b.y, width: drawerW, height: b.height })
   }
 
   // When user resizes the drawer, snap height to parent and re-anchor position.
@@ -277,7 +280,8 @@ export function createDrawerWindow(config: DrawerConfig): DrawerResult | null {
     const pb = parentWin.getBounds()
     // Clamp width and lock height to parent
     const w = Math.max(MIN_DRAWER_WIDTH, Math.min(MAX_DRAWER_WIDTH, db.width))
-    win.setBounds({ x: pb.x - w, y: pb.y, width: w, height: pb.height })
+    const x = side === 'right' ? pb.x + pb.width : pb.x - w
+    win.setBounds({ x, y: pb.y, width: w, height: pb.height })
     resizing = false
   }
 

@@ -156,6 +156,16 @@ const terminalApi = {
   // Slack
   slackCompose: () => ipcRenderer.send('slack:compose'),
 
+  // Share context
+  shareContext: () => ipcRenderer.send('terminal:share-context'),
+
+  // Agent teams dashboard
+  toggleTeamDashboard: () => ipcRenderer.send('terminal:toggle-teamdash'),
+  onTeamDashClosed: (cb: () => void) => {
+    ipcRenderer.on('terminal:teamdash-closed', () => cb())
+    return () => ipcRenderer.removeListener('terminal:teamdash-closed', () => cb())
+  },
+
   // Title updates
   onTitleUpdated: (callback: (title: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, title: string) => callback(title)

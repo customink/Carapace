@@ -862,6 +862,21 @@ async function init() {
     window.carapaceTerminal.slackCompose()
   })
 
+  // ─── Agent Teams Dashboard ───
+  const teamdashBtn = document.getElementById('teamdash-btn')!
+  teamdashBtn.addEventListener('click', () => {
+    teamdashBtn.classList.toggle('active')
+    window.carapaceTerminal.toggleTeamDashboard()
+  })
+  window.carapaceTerminal.onTeamDashClosed(() => {
+    teamdashBtn.classList.remove('active')
+  })
+
+  // ─── Share Context ───
+  document.getElementById('sharecontext-btn')!.addEventListener('click', () => {
+    window.carapaceTerminal.shareContext()
+  })
+
   // ─── Custom snippets ───
   const snippetContainer = document.getElementById('custom-snippets')!
 

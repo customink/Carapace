@@ -10,8 +10,10 @@ import { toggleModelSelectorWindow } from '../windows/model-selector'
 import { toggleFileTreeWindow } from '../windows/file-tree'
 import { togglePromptHistoryWindow } from '../windows/prompt-history'
 import { toggleImageGalleryWindow } from '../windows/image-gallery'
+import { toggleTeamDashboard } from '../windows/team-dashboard'
 import { showPresetDialog } from '../windows/preset-dialog'
 import { addPreset } from './preset-store'
+import { exportContext } from './context-share'
 import { setDockIcon } from './icon-generator'
 import { IPC_CHANNELS } from '../ipc/channels'
 import { recordSession, updateHistoryEntry } from './session-history'
@@ -299,6 +301,15 @@ export function registerTerminalIpc(): void {
     toggleModelSelectorWindow(win, session.color)
   })
 
+  // Toggle agent teams dashboard (right-side panel)
+  ipcMain.on('terminal:toggle-teamdash', (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const session = ptyManager.getByWindowId(win.id)
+    if (!session) return
+    toggleTeamDashboard(win, session.color, session.cwd, session.claudeSessionId)
+  })
+
   // Get GitHub remote URL for the session's working directory
   ipcMain.handle('terminal:github-url', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
@@ -475,6 +486,29 @@ export function registerTerminalIpc(): void {
       shellTabNames: session.shellTabNames || [],
     }, 'new')
     if (result) addPreset(result)
+  })
+
+  ipcMain.on('terminal:share-context', async (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const session = ptyManager.getByWindowId(win.id)
+    if (!session) return
+
+    const { dialog } = require('electron')
+    const pkg = exportContext(session.pid)
+    if (!pkg) {
+      dialog.showErrorBox('Export Failed', 'No conversation data found. The session may not have started yet.')
+      return
+    }
+    const defaultName = (session.title || 'claude-session').replace(/[^a-zA-Z0-9_-]/g, '-')
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      title: 'Share Context',
+      defaultPath: `${defaultName}.carapace-context`,
+      filters: [{ name: 'Carapace Context', extensions: ['carapace-context'] }],
+    })
+    if (!canceled && filePath) {
+      fs.writeFileSync(filePath, JSON.stringify(pkg, null, 2), 'utf-8')
+    }
   })
 
   // Sidebar settings persistence (order + hidden)

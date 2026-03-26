@@ -52,4 +52,8 @@ export const IPC_CHANNELS = {
   PRESET_CREATE: 'preset:create',
   PRESET_UPDATE: 'preset:update',
   PRESET_DELETE: 'preset:delete',
+
+  // Context sharing
+  CONTEXT_EXPORT: 'context:export',
+  CONTEXT_IMPORT: 'context:import',
 } as const

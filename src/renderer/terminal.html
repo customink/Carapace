@@ -30,6 +30,31 @@
       user-select: none;
       -webkit-user-select: none;
       flex-shrink: 0;
+      position: relative;
+    }
+    #teamdash-btn {
+      -webkit-app-region: no-drag;
+      width: 28px; height: 28px;
+      border: none; border-radius: 5px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.3);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      margin-right: 10px;
+      transition: all 0.15s;
+      flex-shrink: 0;
+      align-self: center;
+    }
+    #teamdash-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.7);
+    }
+    #teamdash-btn.active {
+      color: rgba(255, 255, 255, 0.8);
+      background: rgba(255, 255, 255, 0.1);
     }
     #tabbar {
       display: flex;
@@ -248,6 +273,15 @@
       <span>Claude</span>
     </div>
     <div id="add-tab-btn" title="New Tab">+</div>
+    <div style="flex:1"></div>
+    <button id="teamdash-btn" title="Agent Teams">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+        <circle cx="8" cy="4" r="2" stroke="currentColor" stroke-width="1.2"/>
+        <circle cx="3.5" cy="11" r="1.8" stroke="currentColor" stroke-width="1.2"/>
+        <circle cx="12.5" cy="11" r="1.8" stroke="currentColor" stroke-width="1.2"/>
+        <path d="M6.3 5.5L4.6 9.2M9.7 5.5L11.4 9.2" stroke="currentColor" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+      </svg>
+    </button>
   </div>
   <div id="main-area">
     <div id="sidebar">
@@ -315,6 +349,14 @@
           <path d="M8.834 5.042a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312z" fill="currentColor" opacity="0.7"/>
           <path d="M18.956 8.834a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.268 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312z" fill="currentColor" opacity="0.8"/>
           <path d="M15.165 18.956a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.268a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z" fill="currentColor" opacity="0.6"/>
+        </svg>
+      </button>
+      <button id="sharecontext-btn" class="sidebar-btn sidebar-reorderable" data-sidebar-id="sharecontext" title="Share Context">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+          <circle cx="12" cy="3.5" r="2" stroke="currentColor" stroke-width="1.1"/>
+          <circle cx="4" cy="8" r="2" stroke="currentColor" stroke-width="1.1"/>
+          <circle cx="12" cy="12.5" r="2" stroke="currentColor" stroke-width="1.1"/>
+          <path d="M5.8 7.1l4.4-2.6M5.8 8.9l4.4 2.6" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
         </svg>
       </button>
       <div id="custom-snippets"></div>

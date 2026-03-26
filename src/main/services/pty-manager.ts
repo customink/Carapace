@@ -207,6 +207,7 @@ export function createPty(options: {
 
   const claudePath = findClaudePath()
   let flags = options.bypass ? ' --dangerously-skip-permissions' : ''
+  flags += ' --teammate-mode in-process'
   if (options.resumeSessionId) flags += ` --resume ${options.resumeSessionId}`
 
   // Resolve the user's default shell

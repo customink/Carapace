@@ -290,6 +290,29 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  #search-results .node {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding: 5px 10px 5px 10px;
+  }
+  #search-results .node .text-wrap {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  #search-results .node .text-wrap .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #search-results .node .text-wrap .rel-path {
+    margin-left: 0;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .node .insert-btn {
     margin-left: auto;
     padding: 0 4px;
@@ -525,7 +548,7 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
 
     // ─── Search ───
     let searchTimer = null;
-    searchInput.addEventListener('input', () => {
+    const searchHandler = () => {
       if (searchTimer) clearTimeout(searchTimer);
       const q = searchInput.value.trim();
       if (q.length < 2) {
@@ -534,15 +557,17 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
         searchResults.innerHTML = '';
         return;
       }
+      tree.style.display = 'none';
+      searchResults.style.display = 'block';
+      searchResults.innerHTML = '<div class="empty">Searching...</div>';
       searchTimer = setTimeout(async () => {
-        const results = await ipcRenderer.invoke('${channelSearch}', q, showHidden, currentSort);
-        tree.style.display = 'none';
-        searchResults.style.display = '';
-        searchResults.innerHTML = '';
-        if (results.length === 0) {
-          searchResults.innerHTML = '<div class="empty">No matches</div>';
-          return;
-        }
+        try {
+          const results = await ipcRenderer.invoke('${channelSearch}', q, showHidden, currentSort);
+          searchResults.innerHTML = '';
+          if (!results || results.length === 0) {
+            searchResults.innerHTML = '<div class="empty">No matches</div>';
+            return;
+          }
         for (const entry of results) {
           const row = document.createElement('div');
           row.className = 'node ' + (entry.isDir ? 'dir' : 'file');
@@ -553,15 +578,20 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
           icon.textContent = entry.isDir ? dirIcon() : fileIcon(entry.name);
           row.appendChild(icon);
 
+          const textWrap = document.createElement('div');
+          textWrap.className = 'text-wrap';
+
           const nameEl = document.createElement('span');
           nameEl.className = 'name';
           nameEl.textContent = entry.name;
-          row.appendChild(nameEl);
+          textWrap.appendChild(nameEl);
 
           const rel = document.createElement('span');
           rel.className = 'rel-path';
           rel.textContent = relPath(entry.path);
-          row.appendChild(rel);
+          textWrap.appendChild(rel);
+
+          row.appendChild(textWrap);
 
           row.draggable = true;
           row.addEventListener('dragstart', (e) => {
@@ -582,8 +612,12 @@ export function toggleFileTreeWindow(parentWin: BrowserWindow, color: string, cw
 
           searchResults.appendChild(row);
         }
+        } catch (err) {
+          searchResults.innerHTML = '<div class="empty">Search error: ' + (err.message || err) + '</div>';
+        }
       }, 200);
-    });
+    };
+    searchInput.addEventListener('input', searchHandler);
 
     // ─── Context menu ───
     let activeMenu = null;

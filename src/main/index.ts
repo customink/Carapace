@@ -1,3 +1,6 @@
+import * as fs from 'fs'
+import * as path from 'path'
+import * as os from 'os'
 import { app, ipcMain, Menu, BrowserWindow, screen, dialog, shell, net } from 'electron'
 import { registerIpcHandlers, startSessionMonitor, stopSessionMonitor, startFastThinkingPoll } from './ipc/handlers'
 import { IPC_CHANNELS } from './ipc/channels'
@@ -16,6 +19,8 @@ import { loadAppSettings, saveAppSettings } from './services/app-settings-store'
 import { showSettingsWindow } from './windows/settings'
 import { showSlackComposeDialog } from './windows/slack-compose'
 import { getLastAssistantResponse } from './services/jsonl-parser'
+import { exportContext, importContext, type CarapaceContextPackage } from './services/context-share'
+import { showImportContextDialog } from './windows/import-context-dialog'
 import { detectActiveProcesses } from './services/process-detector'
 import { getCachedSessions, invalidateCache, discoverSessionsAsync } from './services/session-discovery'
 import { loadSchedules, addSchedule, updateSchedule, deleteSchedule } from './services/schedule-store'
@@ -492,6 +497,27 @@ app.whenReady().then(() => {
           if (result) addPreset(result)
         }
       },
+      {
+        label: 'Share Context...',
+        enabled: !!session?.claudeSessionId,
+        click: async () => {
+          if (!session) return
+          const pkg = exportContext(session.pid)
+          if (!pkg) {
+            dialog.showErrorBox('Export Failed', 'No conversation data found. The session may not have started yet.')
+            return
+          }
+          const defaultName = (session.title || 'claude-session').replace(/[^a-zA-Z0-9_-]/g, '-')
+          const { canceled, filePath } = await dialog.showSaveDialog({
+            title: 'Share Context',
+            defaultPath: `${defaultName}.carapace-context`,
+            filters: [{ name: 'Carapace Context', extensions: ['carapace-context'] }],
+          })
+          if (!canceled && filePath) {
+            fs.writeFileSync(filePath, JSON.stringify(pkg, null, 2), 'utf-8')
+          }
+        }
+      },
       { type: 'separator' },
       {
         label: 'Close Session',
@@ -612,6 +638,60 @@ app.whenReady().then(() => {
           ]
         }
       })(),
+      {
+        label: 'Import Context...',
+        click: async () => {
+          const { canceled, filePaths } = await dialog.showOpenDialog({
+            title: 'Import Context',
+            filters: [{ name: 'Carapace Context', extensions: ['carapace-context'] }],
+            properties: ['openFile'],
+          })
+          if (canceled || !filePaths[0]) return
+
+          let pkg: CarapaceContextPackage
+          try {
+            pkg = JSON.parse(fs.readFileSync(filePaths[0], 'utf-8'))
+            if (!pkg.version || !pkg.metadata?.claudeSessionId || !pkg.transcripts?.main) {
+              throw new Error('Invalid context file format')
+            }
+          } catch (err) {
+            dialog.showErrorBox('Import Failed', `Could not read context file: ${(err as Error).message}`)
+            return
+          }
+
+          const opts = await showImportContextDialog(pkg.metadata.title || 'Imported Session')
+          if (!opts) return
+
+          const sessionId = importContext(pkg, opts.folder)
+
+          const newPtyId = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+          // Write imported notes and prompt history for the new session
+          if (pkg.notes) {
+            const notesDir = path.join(os.homedir(), '.claude', 'usage-data', 'session-notes')
+            fs.mkdirSync(notesDir, { recursive: true })
+            fs.writeFileSync(path.join(notesDir, `${newPtyId}.txt`), pkg.notes, 'utf-8')
+          }
+          if (pkg.promptHistory?.length) {
+            const histDir = path.join(os.homedir(), '.claude', 'usage-data', 'prompt-history')
+            fs.mkdirSync(histDir, { recursive: true })
+            fs.writeFileSync(path.join(histDir, `${newPtyId}.json`), JSON.stringify(pkg.promptHistory, null, 2), 'utf-8')
+          }
+
+          spawnClaudeSession(
+            opts.bypass,
+            opts.title || pkg.metadata.title || undefined,
+            opts.folder || undefined,
+            pkg.metadata.color || undefined,
+            (pkg.metadata.shellTabNames?.length ?? 0) > 0,
+            newPtyId,
+            pkg.metadata.label || undefined,
+            pkg.metadata.shellTabNames || undefined,
+            false,
+            sessionId,
+          )
+        }
+      },
       (() => {
         const history = loadHistory()
         if (history.length === 0) {
