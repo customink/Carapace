@@ -6,4 +6,4 @@ framework: React
 lifecycle: generally_available
 owner: accounts
 tags:
-  node: "20"
+  node: "20.19.4"
