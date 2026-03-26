@@ -1,0 +1,6 @@
+---
+version: 1
+component:
+  tags:
+    - key: "node"
+      value: "20"
