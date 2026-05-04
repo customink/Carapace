@@ -53,6 +53,14 @@ export const IPC_CHANNELS = {
   PRESET_UPDATE: 'preset:update',
   PRESET_DELETE: 'preset:delete',
 
+  // Stacks
+  STACKS_LIST: 'stacks:list',
+  STACK_CREATE: 'stack:create',
+  STACK_UPDATE: 'stack:update',
+  STACK_DELETE: 'stack:delete',
+  STACK_IMPORT: 'stack:import',
+  STACK_LAUNCH: 'stack:launch',
+
   // Context sharing
   CONTEXT_EXPORT: 'context:export',
   CONTEXT_IMPORT: 'context:import',

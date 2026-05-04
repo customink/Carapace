@@ -149,22 +149,28 @@ export function FloatingOrb() {
     isDragging.current = true
     didDrag.current = false
     dragStart.current = { x: e.screenX, y: e.screenY }
-    window.carapace?.dragStart(e.screenX, e.screenY)
 
     let rafId = 0
     let latestX = e.screenX
     let latestY = e.screenY
+    let dragStartedWithMain = false
 
     const onMouseMove = (ev: MouseEvent) => {
       if (!isDragging.current) return
       const dx = Math.abs(ev.screenX - dragStart.current.x)
       const dy = Math.abs(ev.screenY - dragStart.current.y)
       if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
-        didDrag.current = true
+        if (!didDrag.current) {
+          didDrag.current = true
+          if (!dragStartedWithMain) {
+            window.carapace?.dragStart(dragStart.current.x, dragStart.current.y)
+            dragStartedWithMain = true
+          }
+        }
       }
       latestX = ev.screenX
       latestY = ev.screenY
-      if (!rafId) {
+      if (!rafId && dragStartedWithMain) {
         rafId = requestAnimationFrame(() => {
           rafId = 0
           window.carapace?.dragMove(latestX, latestY)
@@ -178,8 +184,10 @@ export function FloatingOrb() {
         cancelAnimationFrame(rafId)
         rafId = 0
       }
-      window.carapace?.dragMove(latestX, latestY)
-      window.carapace?.dragEnd()
+      if (dragStartedWithMain) {
+        window.carapace?.dragMove(latestX, latestY)
+        window.carapace?.dragEnd()
+      }
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
 

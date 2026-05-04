@@ -166,6 +166,14 @@ const terminalApi = {
     return () => ipcRenderer.removeListener('terminal:teamdash-closed', () => cb())
   },
 
+  // Stacks
+  toggleStacks: () => ipcRenderer.send('terminal:toggle-stacks'),
+  onStacksClosed: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('terminal:stacks-closed', handler)
+    return () => { ipcRenderer.removeListener('terminal:stacks-closed', handler) }
+  },
+
   // Title updates
   onTitleUpdated: (callback: (title: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, title: string) => callback(title)

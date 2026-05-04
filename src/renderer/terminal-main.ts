@@ -59,6 +59,8 @@ declare global {
       slackCompose: () => void
       onTitleUpdated: (callback: (title: string) => void) => () => void
       onColorUpdated: (callback: (color: string) => void) => () => void
+      toggleStacks: () => void
+      onStacksClosed: (callback: () => void) => () => void
     }
   }
 }
@@ -81,6 +83,21 @@ function tintedBackground(hex: string, tint = 0.08): string {
 }
 
 function setupCopyPaste(terminal: Terminal, sendData: (data: string) => void) {
+  // xterm.js terminal buffer lines are padded to the full column width with spaces.
+  // getSelection() includes all that trailing whitespace, which ruins pasted formatting.
+  // We trim trailing whitespace from each line while preserving blank lines.
+  function getCleanSelection(): string {
+    const selection = terminal.getSelection()
+    if (!selection) return ''
+    return selection
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .split('\n')
+      .map(line => line.trimEnd())
+      .join('\n')
+      .trimEnd()
+  }
+
   terminal.attachCustomKeyEventHandler((event) => {
     // Shift+Enter → send CSI u sequence so Claude Code inserts a newline
     // Must block both keydown and keypress to prevent xterm from also sending \r
@@ -95,7 +112,7 @@ function setupCopyPaste(terminal: Terminal, sendData: (data: string) => void) {
 
     if (event.metaKey && event.key === 'c') {
       if (terminal.hasSelection()) {
-        navigator.clipboard.writeText(terminal.getSelection())
+        navigator.clipboard.writeText(getCleanSelection())
         return false
       }
       return true
@@ -235,6 +252,7 @@ async function init() {
     filetree: 'File Tree', model: 'Switch Model', github: 'GitHub',
     prompthistory: 'Prompt History', imagegallery: 'Image Gallery',
     openfolder: 'Open Folder', savepreset: 'Save as Preset', slack: 'Share to Slack',
+    stacks: 'Stacks',
   }
 
   let hiddenBtns = new Set<string>()
@@ -668,6 +686,7 @@ async function init() {
   const filetreeBtn = document.getElementById('filetree-btn')!
   const prompthistoryBtn = document.getElementById('prompthistory-btn')!
   const modelBtn = document.getElementById('model-btn')!
+  const stacksBtn = document.getElementById('stacks-btn')!
   let notesOpen = false
   let skillsOpen = false
   let skillbrowserOpen = false
@@ -675,8 +694,9 @@ async function init() {
   let filetreeOpen = false
   let prompthistoryOpen = false
   let modelSelectorOpen = false
+  let stacksOpen = false
 
-  function closeOtherDrawers(except: 'notes' | 'skills' | 'skillbrowser' | 'imagegallery' | 'filetree' | 'prompthistory' | 'modelselector') {
+  function closeOtherDrawers(except: 'notes' | 'skills' | 'skillbrowser' | 'imagegallery' | 'filetree' | 'prompthistory' | 'modelselector' | 'stacks') {
     if (except !== 'notes' && notesOpen) {
       notesOpen = false
       notesBtn.classList.remove('active')
@@ -711,6 +731,11 @@ async function init() {
       modelSelectorOpen = false
       modelBtn.classList.remove('active')
       window.carapaceTerminal.toggleModelSelector()
+    }
+    if (except !== 'stacks' && stacksOpen) {
+      stacksOpen = false
+      stacksBtn.classList.remove('active')
+      window.carapaceTerminal.toggleStacks()
     }
   }
 
@@ -796,6 +821,18 @@ async function init() {
   window.carapaceTerminal.onModelSelectorClosed(() => {
     modelSelectorOpen = false
     modelBtn.classList.remove('active')
+  })
+
+  stacksBtn.addEventListener('click', () => {
+    if (!stacksOpen) closeOtherDrawers('stacks')
+    stacksOpen = !stacksOpen
+    stacksBtn.classList.toggle('active', stacksOpen)
+    window.carapaceTerminal.toggleStacks()
+  })
+
+  window.carapaceTerminal.onStacksClosed(() => {
+    stacksOpen = false
+    stacksBtn.classList.remove('active')
   })
 
   // When a command is selected from any panel, type it into the active terminal

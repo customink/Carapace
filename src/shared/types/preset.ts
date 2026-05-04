@@ -8,4 +8,5 @@ export interface Preset {
   shellTab: boolean      // open companion shell tab(s)
   shellTabCount: number  // number of companion shell tabs (1+)
   shellTabNames: string[] // custom names per shell tab
+  stackId?: string       // optional: linked stack; stack.systemPath overrides folder at launch
 }

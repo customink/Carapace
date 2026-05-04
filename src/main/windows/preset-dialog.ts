@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain, dialog } from 'electron'
 import { SESSION_COLORS } from '@shared/constants/colors'
 import type { Preset } from '@shared/types/preset'
+import { loadStacks } from '../services/stacks-store'
 
 // Human-friendly names for the color palette
 const COLOR_NAMES: Record<string, string> = {
@@ -25,6 +26,7 @@ export interface PresetDialogResult {
   shellTab: boolean
   shellTabCount: number
   shellTabNames: string[]
+  stackId?: string
 }
 
 /**
@@ -108,6 +110,13 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
     const initShellTabNames = JSON.stringify(existing?.shellTabNames || [])
     const initColor = existing?.color || ''
     const initDotColor = initColor || SESSION_COLORS[0]
+    const initStackId = existing?.stackId || ''
+
+    const stacks = loadStacks()
+    const stackOptions = stacks.map(s => {
+      const selected = initStackId === s.id ? ' selected' : ''
+      return `<option value="${s.id}"${selected}>${s.name}</option>`
+    }).join('')
 
     const html = `<!DOCTYPE html>
 <html>
@@ -210,6 +219,15 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
       <button class="browse" onclick="require('electron').ipcRenderer.send('${channelBrowse}')">Browse</button>
     </div>
   </div>
+  ${stacks.length > 0 ? `
+  <div class="field">
+    <label>Stack</label>
+    <select id="stack">
+      <option value="">None</option>
+      ${stackOptions}
+    </select>
+  </div>
+  ` : ''}
   <div class="field">
     <label>Color</label>
     <div class="color-row">
@@ -242,6 +260,7 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
     const nameEl = document.getElementById('name');
     const titleEl = document.getElementById('title');
     const folderEl = document.getElementById('folder');
+    const stackEl = document.getElementById('stack');
     const colorEl = document.getElementById('color');
     const colorDot = document.getElementById('colorDot');
     const bypassEl = document.getElementById('bypass');
@@ -251,6 +270,7 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
     const shellNamesEl = document.getElementById('shellNames');
     const okBtn = document.getElementById('okBtn');
     const initNames = ${initShellTabNames};
+    const stacksData = ${JSON.stringify(stacks)};
 
     function updateOk() {
       okBtn.disabled = !nameEl.value.trim();
@@ -261,6 +281,21 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
     colorEl.addEventListener('change', () => {
       colorDot.style.background = colorEl.value || '#7C3AED';
     });
+
+    if (stackEl) {
+      stackEl.addEventListener('change', () => {
+        if (stackEl.value) {
+          const stack = stacksData.find(s => s.id === stackEl.value);
+          if (stack) {
+            folderEl.value = stack.systemPath;
+          }
+        }
+      });
+
+      folderEl.addEventListener('input', () => {
+        stackEl.value = '';
+      });
+    }
 
     shellTabEl.addEventListener('change', () => {
       countRow.style.display = shellTabEl.checked ? 'flex' : 'none';
@@ -315,6 +350,7 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
         shellTab: shellTabEl.checked,
         shellTabCount: count,
         shellTabNames: names,
+        stackId: stackEl && stackEl.value ? stackEl.value : undefined,
       });
     }
 

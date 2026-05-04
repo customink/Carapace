@@ -15,6 +15,9 @@ import { loadSnippets, addSnippet, updateSnippet, deleteSnippet } from './servic
 import { showSnippetDialog } from './windows/snippet-dialog'
 import { loadPresets, addPreset, updatePreset, deletePreset } from './services/preset-store'
 import { showPresetDialog } from './windows/preset-dialog'
+import { loadStacks, addStack, updateStack, deleteStack, importStacks } from './services/stacks-store'
+import { showStackDialog } from './windows/stack-dialog'
+import { showStackImportDialog } from './windows/stack-import-dialog'
 import { loadAppSettings, saveAppSettings } from './services/app-settings-store'
 import { showSettingsWindow } from './windows/settings'
 import { showSlackComposeDialog } from './windows/slack-compose'
@@ -587,10 +590,16 @@ app.whenReady().then(() => {
                     shellTabNames.push(preset.shellTabNames[i] || '')
                   }
                 }
+                // If preset is bound to a stack, use the stack's systemPath
+                let cwd = preset.folder || undefined
+                if (preset.stackId) {
+                  const stack = loadStacks().find(s => s.id === preset.stackId)
+                  if (stack) cwd = stack.systemPath
+                }
                 spawnClaudeSession(
                   preset.bypass,
                   preset.title || undefined,
-                  preset.folder || undefined,
+                  cwd,
                   preset.color || undefined,
                   preset.shellTab || (shellTabNames && shellTabNames.length > 0),
                   undefined, // no existing ptyId
@@ -624,6 +633,7 @@ app.whenReady().then(() => {
                         shellTab: preset.shellTab,
                         shellTabCount: preset.shellTabCount,
                         shellTabNames: preset.shellTabNames,
+                        stackId: preset.stackId,
                       })
                       if (result) updatePreset(preset.id, result)
                     }
@@ -634,6 +644,123 @@ app.whenReady().then(() => {
                   }
                 ]
               }))
+            },
+          ]
+        }
+      })(),
+      (() => {
+        const stacks = loadStacks()
+        if (stacks.length === 0) {
+          return {
+            label: 'Stacks',
+            submenu: [
+              { label: '(No stacks)', enabled: false },
+              { type: 'separator' as const },
+              {
+                label: 'New Stack...',
+                click: async () => {
+                  const result = await showStackDialog()
+                  if (result) addStack(result)
+                }
+              },
+              {
+                label: 'Import from JSON...',
+                click: async () => {
+                  const { canceled, filePaths } = await dialog.showOpenDialog({
+                    title: 'Import Stacks',
+                    filters: [{ name: 'JSON', extensions: ['json'] }],
+                    properties: ['openFile'],
+                  })
+                  if (canceled || !filePaths[0]) return
+                  try {
+                    const content = fs.readFileSync(filePaths[0], 'utf-8')
+                    const imported = JSON.parse(content)
+                    const stackArray = Array.isArray(imported) ? imported : [imported]
+                    const verified = await showStackImportDialog(stackArray)
+                    if (verified) importStacks(verified)
+                  } catch (err) {
+                    dialog.showErrorBox('Import Failed', `Could not import stacks: ${(err as Error).message}`)
+                  }
+                }
+              },
+            ]
+          }
+        }
+        return {
+          label: 'Stacks',
+          submenu: [
+            ...stacks.map((stack) => {
+              const projects = stack.projects || []
+              if (projects.length > 0) {
+                return {
+                  label: stack.name,
+                  submenu: [
+                    {
+                      label: `Launch ${stack.name}`,
+                      click: () => {
+                        const addDirs = projects.map(p => p.path).filter(Boolean)
+                        spawnClaudeSession(false, stack.name, stack.systemPath, undefined, undefined, undefined, undefined, undefined, undefined, undefined, addDirs)
+                      },
+                    },
+                    { type: 'separator' as const },
+                    ...projects.map(proj => ({
+                      label: proj.name,
+                      click: () => spawnClaudeSession(false, proj.name, proj.path),
+                    })),
+                    { type: 'separator' as const },
+                    {
+                      label: 'Edit...',
+                      click: async () => {
+                        const result = await showStackDialog({ ...stack })
+                        if (result) updateStack(stack.id, result)
+                      }
+                    },
+                    { label: 'Delete', click: () => deleteStack(stack.id) },
+                  ],
+                }
+              }
+              return {
+                label: stack.name,
+                submenu: [
+                  { label: `Launch ${stack.name}`, click: () => spawnClaudeSession(false, stack.name, stack.systemPath) },
+                  { type: 'separator' as const },
+                  {
+                    label: 'Edit...',
+                    click: async () => {
+                      const result = await showStackDialog({ ...stack })
+                      if (result) updateStack(stack.id, result)
+                    }
+                  },
+                  { label: 'Delete', click: () => deleteStack(stack.id) },
+                ],
+              }
+            }),
+            { type: 'separator' as const },
+            {
+              label: 'New Stack...',
+              click: async () => {
+                const result = await showStackDialog()
+                if (result) addStack(result)
+              }
+            },
+            {
+              label: 'Import from JSON...',
+              click: async () => {
+                const { canceled, filePaths } = await dialog.showOpenDialog({
+                  title: 'Import Stacks',
+                  filters: [{ name: 'JSON', extensions: ['json'] }],
+                  properties: ['openFile'],
+                })
+                if (canceled || !filePaths[0]) return
+                try {
+                  const content = fs.readFileSync(filePaths[0], 'utf-8')
+                  const imported = JSON.parse(content)
+                  const stackArray = Array.isArray(imported) ? imported : [imported]
+                  importStacks(stackArray)
+                } catch (err) {
+                  dialog.showErrorBox('Import Failed', `Could not import stacks: ${(err as Error).message}`)
+                }
+              }
             },
           ]
         }
@@ -869,6 +996,32 @@ app.whenReady().then(() => {
 
   ipcMain.handle(IPC_CHANNELS.PRESET_DELETE, async (_e, id: string) => {
     return deletePreset(id)
+  })
+
+  // ─── Stacks ───
+  ipcMain.handle(IPC_CHANNELS.STACKS_LIST, () => loadStacks())
+
+  ipcMain.handle(IPC_CHANNELS.STACK_CREATE, async (_e, stack: Omit<import('@shared/types/stack').Stack, 'id'>) => {
+    return addStack(stack)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.STACK_UPDATE, async (_e, id: string, updates: Omit<import('@shared/types/stack').Stack, 'id'>) => {
+    return updateStack(id, updates)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.STACK_DELETE, async (_e, id: string) => {
+    return deleteStack(id)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.STACK_IMPORT, async (_e, stacks: Omit<import('@shared/types/stack').Stack, 'id'>[]) => {
+    return importStacks(stacks)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.STACK_LAUNCH, async (_e, stackId: string) => {
+    const stack = loadStacks().find(s => s.id === stackId)
+    if (stack) {
+      spawnClaudeSession(false, stack.name, stack.systemPath)
+    }
   })
 
   // ─── Snippets ───
