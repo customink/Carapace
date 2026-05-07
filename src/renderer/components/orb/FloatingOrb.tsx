@@ -21,8 +21,36 @@ const PILL_HEIGHT = 26
 const PILL_GAP = 6
 const PILL_MAX_WIDTH = 300
 
+// Gauge arc — hugs the left side of the orb.
+// Angles use standard math (0°=right, 90°=up); -sin maps to SVG screen space.
+// 225° = lower-left (empty), 135° = upper-left (full). sweep-flag=1 selects the
+// left-side short arc; sweep-flag=0 would draw the wrong (right-side) arc.
+const GAUGE_R = 48
+const GAUGE_SW = 8
+const GAUGE_START = 225
+const GAUGE_END = 135
+const GAUGE_SPAN = GAUGE_START - GAUGE_END  // 90°
+
+function gaugePoint(angleDeg: number): [number, number] {
+  const rad = (angleDeg * Math.PI) / 180
+  return [CENTER_X + GAUGE_R * Math.cos(rad), CENTER_Y - GAUGE_R * Math.sin(rad)]
+}
+
+function gaugeArcPath(startDeg: number, endDeg: number): string {
+  const [x1, y1] = gaugePoint(startDeg)
+  const [x2, y2] = gaugePoint(endDeg)
+  const span = Math.abs(startDeg - endDeg)
+  // sweep-flag=1 (CW in SVG) draws the left-side arc from lower-left to upper-left
+  return `M ${x1} ${y1} A ${GAUGE_R} ${GAUGE_R} 0 ${span > 180 ? 1 : 0} 1 ${x2} ${y2}`
+}
+
+function gaugeColor(pct: number): string {
+  const c = Math.max(0, Math.min(1, pct))
+  return `hsl(${120 - c * 120},75%,55%)`
+}
+
 export function FloatingOrb() {
-  const { activeSessions } = useSessions()
+  const { sessions, activeSessions } = useSessions()
   const isDragging = useRef(false)
   const didDrag = useRef(false)
   const dragStart = useRef({ x: 0, y: 0 })
@@ -30,6 +58,23 @@ export function FloatingOrb() {
   const [thinkingPids, setThinkingPids] = useState<Set<number>>(new Set())
   const [hoveredPillId, setHoveredPillId] = useState<string | null>(null)
   const thinkingInitialized = useRef(false)
+  const [dailyTokenGoal, setDailyTokenGoal] = useState(0)
+
+  // Load app settings on mount and subscribe to changes
+  useEffect(() => {
+    const api = window.carapace as any
+    api?.getAppSettings?.().then((s: any) => setDailyTokenGoal(s?.dailyTokenGoal ?? 0))
+    const unsub = api?.onSettingsUpdated?.((s: any) => setDailyTokenGoal(s?.dailyTokenGoal ?? 0))
+    return () => unsub?.()
+  }, [])
+
+  // Today's total tokens across all sessions that started today
+  const todayTokens = useMemo(() => {
+    const today = new Date().toDateString()
+    return sessions
+      .filter(s => new Date(s.startTime).toDateString() === today)
+      .reduce((sum, s) => sum + (s.tokens?.totalTokens ?? 0), 0)
+  }, [sessions])
 
   // Only show sessions spawned by Carapace on the orb
   const managedSessions = activeSessions.filter(s => s.managed)
@@ -380,6 +425,46 @@ export function FloatingOrb() {
           </motion.div>
         ))}
       </AnimatePresence>
+
+      {/* Daily token gauge — left arc around orb */}
+      {dailyTokenGoal > 0 && (() => {
+        const pct = Math.min(1, todayTokens / dailyTokenGoal)
+        const fillAngle = GAUGE_START - pct * GAUGE_SPAN
+        const color = gaugeColor(pct)
+        const pctLabel = Math.round(pct * 100)
+        const title = `${todayTokens.toLocaleString()} / ${dailyTokenGoal.toLocaleString()} tokens today (${pctLabel}%)`
+
+        return (
+          <svg
+            className="absolute pointer-events-none"
+            style={{ left: 0, top: 0, width: '100%', height: '100%', overflow: 'visible' }}
+          >
+            <title>{title}</title>
+
+            {/* Track */}
+            <path
+              d={gaugeArcPath(GAUGE_START, GAUGE_END)}
+              fill="none"
+              stroke="rgba(255,255,255,0.10)"
+              strokeWidth={GAUGE_SW}
+              strokeLinecap="round"
+            />
+
+            {/* Fill */}
+            {pct > 0 && (
+              <path
+                d={gaugeArcPath(GAUGE_START, fillAngle)}
+                fill="none"
+                stroke={color}
+                strokeWidth={GAUGE_SW}
+                strokeLinecap="round"
+                style={{ filter: `drop-shadow(0 0 3px ${color}88)` }}
+              />
+            )}
+
+          </svg>
+        )
+      })()}
 
       {/* Pulse ring behind main orb */}
       {count > 0 && (

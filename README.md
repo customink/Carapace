@@ -62,11 +62,29 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 - Auto-clears when you focus the terminal window
 - Polling fallback ensures notifications are never missed
 
+### Stacks
+- Named tech-stack configurations that group a working directory and related project paths
+- Launch a stack directly from the orb context menu — opens a session at the stack's root and adds all project paths to Claude's context via `--add-dir`
+- Per-project launches from the context menu: jump straight to an individual project within a stack
+- Stacks sidebar drawer: view, create, edit, and delete stacks; launch individual projects or the full stack
+- Import stacks from another Carapace user via JSON export — path-verification dialog lets you remap any paths that don't exist on your machine before importing
+- Share a stack by exporting it as a JSON file
+- Storage format is one YAML file per stack in `~/.claude/stacks/`, compatible with the `/stacks` Claude Code plugin
+- Bind a preset to a stack so launching the preset always uses the stack's current working directory
+
+### Daily Token Gauge
+- Curved arc gauge on the left side of the orb tracking today's total token consumption across all sessions
+- Fills from bottom to top: green (low usage) → yellow → red (near limit)
+- Set a max daily token goal in Settings → **Max Daily Tokens** (0 hides the gauge)
+- Updates in real-time as JSONL transcripts change — no manual refresh needed
+- Hover the gauge to see a tooltip: tokens used / goal / percentage
+
 ### Sidebar Tools
 - **Notes** — Floating notepad per session
 - **Slash Commands** — Quick access to built-in Claude commands
 - **Skills Browser** — Browse and use user/plugin skills
 - **File Tree** — Navigable directory tree of the session's working folder with right-click "Add to prompt"
+- **Stacks** — Browse and launch named tech-stack configurations
 - **Image Gallery** — Global image collection with drag-drop import, paste, thumbnails, and right-click context menu (copy, reveal in Finder, remove)
 - **Open Folder** — Open session directory in Finder
 - **Model Selector** — Drawer panel to switch Claude models
