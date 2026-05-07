@@ -23,14 +23,17 @@ export interface PtySession {
   createdAt: number
   /** True when Claude is actively generating a response */
   isThinking: boolean
-  thinkingTimer: ReturnType<typeof setTimeout> | null
-  /** Absolute max timer — force clears thinking after MAX_THINKING_MS */
-  maxThinkingTimer: ReturnType<typeof setTimeout> | null
+  /**
+   * Generation counter for cancellable one-shot timers.
+   * Incrementing this invalidates any outstanding idle/max timers without
+   * needing to store timer handles. Pattern inspired by Warp's IdleTimeoutSender.
+   */
+  thinkingGeneration: number
   /** Buffer for accumulating user keystrokes before Enter */
   inputBuffer: string
   /** Shell tab names for persistence on revive */
   shellTabNames?: string[]
-  /** Optional interceptor for PTY data — used by scheduler to detect trust dialog */
+  /** Optional interceptor for PTY data — used by scheduler to detect Claude ready prompt */
   onDataInterceptor?: ((data: string) => void) | null
   /** If true, bring window to front on first end_turn (scheduled session) */
   scheduledBringToFront?: boolean
@@ -106,58 +109,45 @@ export function fireBell(pid: number): void {
 
 /**
  * Clear thinking state for a session.
- * Called from handlers.ts when JSONL shows end_turn,
- * and from the idle-timeout fallback in onData.
- * Does NOT fire the bell — bell is only fired from handlers.ts
- * on end_turn completion to avoid false triggers during tool_use pauses.
+ * Called from hook-server on Stop event, from handlers.ts on JSONL end_turn,
+ * and from the idle-timeout fallback.
+ * Increments thinkingGeneration to cancel any outstanding idle/max timers.
  */
 export function clearThinking(pid: number): void {
   const session = getByPid(pid)
   if (!session || !session.isThinking) return
 
-  if (session.thinkingTimer) {
-    clearTimeout(session.thinkingTimer)
-    session.thinkingTimer = null
-  }
-  if (session.maxThinkingTimer) {
-    clearTimeout(session.maxThinkingTimer)
-    session.maxThinkingTimer = null
-  }
+  session.thinkingGeneration++
   session.isThinking = false
   onThinkingChangeCallback?.(session.pid, false)
 }
 
 /**
  * Re-arm thinking state for a session.
- * Called from handlers.ts when JSONL shows tool_use stop_reason,
- * indicating Claude is still actively working even if the idle timeout cleared the spinner.
+ * Called from hook-server on PreToolUse event, from handlers.ts on JSONL tool_use.
+ * Uses generation counter (Warp's IdleTimeoutSender pattern) to cancel stale timers
+ * without storing handles.
  */
 export function rearmThinking(pid: number): void {
   const session = getByPid(pid)
   if (!session) return
-  // Only rearm if the user actually sent a prompt (bellArmed) — prevents
-  // old JSONL files with tool_use from arming the spinner on idle sessions
+  // Only rearm if the user actually sent a prompt — prevents old JSONL files
+  // from arming the spinner on idle sessions
   if (!session.bellArmed && !session.isThinking) return
 
-  // Cancel any pending timers
-  if (session.thinkingTimer) {
-    clearTimeout(session.thinkingTimer)
-    session.thinkingTimer = null
-  }
-  if (session.maxThinkingTimer) {
-    clearTimeout(session.maxThinkingTimer)
-    session.maxThinkingTimer = null
-  }
+  // Increment generation — outstanding timers with the old generation will no-op
+  session.thinkingGeneration++
+  const gen = session.thinkingGeneration
 
-  // Restart idle timer
-  session.thinkingTimer = setTimeout(() => {
-    session.thinkingTimer = null
+  // Idle timer: clear thinking if no hook event arrives within IDLE_THRESHOLD_MS
+  setTimeout(() => {
+    if (session.thinkingGeneration !== gen) return
     clearThinking(session.pid)
   }, IDLE_THRESHOLD_MS)
 
-  // Restart max timer (tool_use means Claude is still working — give it another 60s)
-  session.maxThinkingTimer = setTimeout(() => {
-    session.maxThinkingTimer = null
+  // Absolute max timer: force clear after MAX_THINKING_MS regardless
+  setTimeout(() => {
+    if (session.thinkingGeneration !== gen) return
     clearThinking(session.pid)
   }, MAX_THINKING_MS)
 
@@ -250,8 +240,7 @@ export function createPty(options: {
     bellArmed: false,
     createdAt: Date.now(),
     isThinking: false,
-    thinkingTimer: null,
-    maxThinkingTimer: null,
+    thinkingGeneration: 0,
     inputBuffer: '',
   }
 
@@ -332,22 +321,9 @@ export function writeToPty(ptyId: string, data: string): void {
   }
 
   // Mark as thinking when user sends Enter — skip startup grace period
-  // (Enter during startup is for CLI prompts like "trust this folder", not Claude conversations)
+  // (Enter during startup is for CLI prompts, not Claude conversations)
   if (isEnter && !session.isThinking && Date.now() - session.createdAt > STARTUP_GRACE_MS) {
-    session.isThinking = true
-    onThinkingChangeCallback?.(session.pid, true)
-
-    // Start idle timer immediately (don't wait for PTY output)
-    session.thinkingTimer = setTimeout(() => {
-      session.thinkingTimer = null
-      clearThinking(session.pid)
-    }, IDLE_THRESHOLD_MS)
-
-    // Absolute max timer — force clear if JSONL detection fails completely
-    session.maxThinkingTimer = setTimeout(() => {
-      session.maxThinkingTimer = null
-      clearThinking(session.pid)
-    }, MAX_THINKING_MS)
+    rearmThinking(session.pid)
   }
 
   session.pty.write(data)

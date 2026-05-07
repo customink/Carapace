@@ -15,6 +15,7 @@ export interface AppSettings {
   orbClickPreset: string   // preset ID for 'preset' action on click
   orbCmdClickPreset: string
   orbCtrlClickPreset: string
+  dailyTokenGoal: number   // 0 = no goal / gauge hidden
 }
 
 const DEFAULTS: AppSettings = {
@@ -26,6 +27,7 @@ const DEFAULTS: AppSettings = {
   orbClickPreset: '',
   orbCmdClickPreset: '',
   orbCtrlClickPreset: '',
+  dailyTokenGoal: 0,
 }
 
 export function loadAppSettings(): AppSettings {

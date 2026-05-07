@@ -30,7 +30,7 @@ const CHIME_SOUNDS: Array<[string, string]> = [
   ['/System/Library/Components/CoreAudio.component/Contents/SharedSupport/SystemSounds/siri/jbl_begin_short.caf', 'Siri Short'],
 ]
 
-export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume: number; orbClickAction: string; orbCmdClickAction: string; orbCtrlClickAction: string; orbClickPreset: string; orbCmdClickPreset: string; orbCtrlClickPreset: string; clearHistory: boolean } | null> {
+export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume: number; orbClickAction: string; orbCmdClickAction: string; orbCtrlClickAction: string; orbClickPreset: string; orbCmdClickPreset: string; orbCtrlClickPreset: string; dailyTokenGoal: number; clearHistory: boolean } | null> {
   return new Promise((resolve) => {
     const settings = loadAppSettings()
 
@@ -213,6 +213,15 @@ export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume:
     </div>
   </div>
 
+  <div class="field">
+    <label>Max Daily Tokens</label>
+    <div style="display:flex;align-items:center;gap:8px;-webkit-app-region:no-drag;">
+      <input type="number" id="dailyTokenGoal" min="0" step="10000" value="${settings.dailyTokenGoal}"
+        style="width:130px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#e2e8f0;border-radius:6px;padding:5px 8px;font-size:13px;-webkit-app-region:no-drag;outline:none;" />
+      <span style="font-size:12px;color:#64748b;">0 = hide gauge</span>
+    </div>
+  </div>
+
   <div class="danger-section">
     <label>Session History</label>
     <p style="font-size: 12px; color: #64748b; margin: 4px 0 8px;">Remove all saved session history used by "Revive Recent Session".</p>
@@ -267,6 +276,7 @@ export function showSettingsWindow(): Promise<{ chimeSound: string; chimeVolume:
         orbClickPreset: document.getElementById('orbClickPreset').value || '',
         orbCmdClickPreset: document.getElementById('orbCmdClickPreset').value || '',
         orbCtrlClickPreset: document.getElementById('orbCtrlClickPreset').value || '',
+        dailyTokenGoal: parseInt(document.getElementById('dailyTokenGoal').value) || 0,
         clearHistory: clearConfirmed,
       });
     }

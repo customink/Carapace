@@ -81,8 +81,12 @@ export function createOrbWindow(): BrowserWindow {
   // Custom drag — also moves panel if visible
   // The visual content (orb + mini-orbs) is inset ~29px from the window edges.
   // Allow the transparent margin to go off-screen so the orb can sit near edges.
-  // X: keep the orb fully visible (orb is at X=70, radius 35, so left edge is at ~35px)
-  const VISUAL_INSET_X = 40
+  // Left: keep orb just visible (orb left edge is at CENTER_X - radius = 35px from window left)
+  const VISUAL_INSET_LEFT = 35
+  // Right: allow the orb to sit ~20px from the right screen edge.
+  // Orb center X=70, radius=35 → orb right edge is at 105px from window left.
+  // VISUAL_INSET_RIGHT = WINDOW_WIDTH - orb_center - orb_radius - 20px safety = 450 - 70 - 35 - 20
+  const VISUAL_INSET_RIGHT = 325
   // Y: allow orb to reach top/bottom edges (orb is near top of window)
   const VISUAL_INSET_Y = WINDOW_HEIGHT - 30
 
@@ -159,8 +163,8 @@ export function createOrbWindow(): BrowserWindow {
         vx *= FRICTION
         vy *= FRICTION
 
-        const minX = wa.x - VISUAL_INSET_X
-        const maxX = wa.x + wa.width - WINDOW_WIDTH + VISUAL_INSET_X
+        const minX = wa.x - VISUAL_INSET_LEFT
+        const maxX = wa.x + wa.width - WINDOW_WIDTH + VISUAL_INSET_RIGHT
         const minY = wa.y - VISUAL_INSET_Y
         const maxY = wa.y + wa.height - WINDOW_HEIGHT + VISUAL_INSET_Y
 
@@ -182,8 +186,8 @@ export function createOrbWindow(): BrowserWindow {
       if (wa) {
         const bounds = orbWindow.getBounds()
         const clampedX = Math.max(
-          wa.x - VISUAL_INSET_X,
-          Math.min(bounds.x, wa.x + wa.width - WINDOW_WIDTH + VISUAL_INSET_X)
+          wa.x - VISUAL_INSET_LEFT,
+          Math.min(bounds.x, wa.x + wa.width - WINDOW_WIDTH + VISUAL_INSET_RIGHT)
         )
         const clampedY = Math.max(
           wa.y - VISUAL_INSET_Y,

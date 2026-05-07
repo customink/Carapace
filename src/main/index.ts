@@ -2,7 +2,9 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { app, ipcMain, Menu, BrowserWindow, screen, dialog, shell, net } from 'electron'
-import { registerIpcHandlers, startSessionMonitor, stopSessionMonitor, startFastThinkingPoll } from './ipc/handlers'
+import { registerIpcHandlers, startSessionMonitor, stopSessionMonitor } from './ipc/handlers'
+import { startHookServer, stopHookServer } from './services/hook-server'
+import { installHooks, uninstallHooks } from './services/hook-installer'
 import { IPC_CHANNELS } from './ipc/channels'
 import { createOrbWindow, getOrbWindow } from './windows/orb'
 import { spawnClaudeSession, registerTerminalIpc } from './services/session-spawner'
@@ -109,6 +111,8 @@ app.whenReady().then(() => {
   registerTerminalIpc()
   startSessionMonitor()
   startScheduler()
+  startHookServer()
+  installHooks()
 
   // Play ding and notify orb when a terminal needs attention
   ptyManager.onAttention((pid) => {
@@ -145,8 +149,6 @@ app.whenReady().then(() => {
     if (orb && !orb.isDestroyed()) {
       orb.webContents.send(IPC_CHANNELS.SESSION_THINKING, pid, isThinking)
     }
-    // Activate fast polling when any session starts thinking
-    if (isThinking) startFastThinkingPoll()
   })
 
   // Update dock menu whenever sessions change (created, closed, etc.)
@@ -938,7 +940,7 @@ app.whenReady().then(() => {
         click: async () => {
           const result = await showSettingsWindow()
           if (result) {
-            saveAppSettings({
+            const updated = saveAppSettings({
               chimeSound: result.chimeSound,
               chimeVolume: result.chimeVolume,
               orbClickAction: result.orbClickAction as any,
@@ -947,7 +949,9 @@ app.whenReady().then(() => {
               orbClickPreset: result.orbClickPreset,
               orbCmdClickPreset: result.orbCmdClickPreset,
               orbCtrlClickPreset: result.orbCtrlClickPreset,
+              dailyTokenGoal: result.dailyTokenGoal ?? 0,
             })
+            getOrbWindow()?.webContents.send('app:settings-updated', updated)
             if (result.clearHistory) {
               const fs = require('fs')
               const path = require('path')
@@ -1023,6 +1027,8 @@ app.whenReady().then(() => {
       spawnClaudeSession(false, stack.name, stack.systemPath)
     }
   })
+
+  ipcMain.handle('app:get-settings', () => loadAppSettings())
 
   // ─── Snippets ───
   ipcMain.handle(IPC_CHANNELS.SNIPPETS_LIST, () => loadSnippets())
@@ -1107,6 +1113,8 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  uninstallHooks()
+  stopHookServer()
   stopSessionMonitor()
   stopScheduler()
   ptyManager.destroyAll()

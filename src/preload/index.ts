@@ -44,7 +44,15 @@ const api = {
     const handler = (_event: Electron.IpcRendererEvent, pid: number, isThinking: boolean) => callback(pid, isThinking)
     ipcRenderer.on(IPC_CHANNELS.SESSION_THINKING, handler)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.SESSION_THINKING, handler)
-  }
+  },
+
+  getAppSettings: () => ipcRenderer.invoke('app:get-settings'),
+
+  onSettingsUpdated: (callback: (settings: unknown) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, settings: unknown) => callback(settings)
+    ipcRenderer.on('app:settings-updated', handler)
+    return () => ipcRenderer.removeListener('app:settings-updated', handler)
+  },
 }
 
 contextBridge.exposeInMainWorld('carapace', api)

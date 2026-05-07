@@ -26,13 +26,12 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 
 ### Floating Orb
 - Always-on-top transparent floating orb showing active session count
-- Mini-orbs orbit the main orb, one per active Claude session
-- Each mini-orb displays session emoji/letter, color, and context usage percentage
-- Click the orb to toggle the session panel; right-click for quick actions
-- Click a mini-orb to instantly focus that terminal window
-- Right-click mini-orbs to set custom letters, emojis, or colors
-- Pulsing bell indicator on mini-orbs when Claude finishes responding in an unfocused window
-- Thinking spinner on mini-orbs when Claude is actively responding
+- Session pills arc around the right side of the orb with name, context %, and thinking spinner
+- Click the orb to create a session (or trigger a configured action); right-click for quick actions
+- Click a pill to instantly focus that terminal; right-click for rename, emoji, color, preset, close
+- Pulsing bell indicator on pills when Claude finishes responding in an unfocused window
+- Thinking spinner on pills when Claude is actively responding
+- Draggable to any screen edge — can now sit flush with the right side of the screen
 
 ### Session Management
 - Spawn new Claude Code sessions with custom title, folder, color, and model
@@ -58,9 +57,16 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 - Audible notification (Glass.aiff) when Claude finishes responding in an unfocused terminal
 - Bell arms on user input and fires after output stops
 - Configurable chime sound and volume
-- Visual indicator on mini-orb (pulsing bell emoji)
+- Visual indicator on session pill (pulsing bell emoji)
 - Auto-clears when you focus the terminal window
-- Polling fallback ensures notifications are never missed
+- 30s polling fallback catches any notifications missed by the hook system
+
+### Event-Driven Session Monitoring
+- Claude Code `Stop` and `PreToolUse` hooks post callbacks to a local server (port 7799) for instant bell/spinner updates
+- Replaces CPU-intensive 5s polling loops with zero-latency hook callbacks
+- Precise scheduler timing fires at the exact minute boundary instead of drifting with 60s intervals
+- Generation-counter timer pattern eliminates timer-handle leaks for thinking spinners
+- Trust dialog pre-accepted automatically for scheduled sessions — no fragile PTY scanning
 
 ### Stacks
 - Named tech-stack configurations that group a working directory and related project paths
@@ -74,10 +80,11 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 
 ### Daily Token Gauge
 - Curved arc gauge on the left side of the orb tracking today's total token consumption across all sessions
-- Fills from bottom to top: green (low usage) → yellow → red (near limit)
+- Starts full and green at the top; drains downward and shifts yellow → red as more tokens are consumed
 - Set a max daily token goal in Settings → **Max Daily Tokens** (0 hides the gauge)
 - Updates in real-time as JSONL transcripts change — no manual refresh needed
-- Hover the gauge to see a tooltip: tokens used / goal / percentage
+- Hover the gauge for a whitish-gray glow on the track and a color-matched glow on the fill
+- Hover tooltip shows: tokens used / goal / percentage consumed
 
 ### Sidebar Tools
 - **Notes** — Floating notepad per session

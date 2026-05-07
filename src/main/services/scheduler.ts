@@ -1,33 +1,43 @@
 import { BrowserWindow, app } from 'electron'
-import * as fs from 'fs'
-
-function debugLog(msg: string): void {
-  const line = `[${new Date().toISOString()}] ${msg}\n`
-  try { fs.appendFileSync('/tmp/carapace-scheduler.log', line) } catch { /* ok */ }
-}
 import { loadSchedules } from './schedule-store'
 import { loadPresets } from './preset-store'
 import { spawnClaudeSession } from './session-spawner'
+import { ensureTrustAccepted } from './claude-config'
 import * as ptyManager from './pty-manager'
 import type { ScheduledPrompt } from '@shared/types/scheduled-prompt'
 
-const SCHEDULER_INTERVAL_MS = 60_000
 const MAX_WAIT_MS = 30_000 // max time to wait for Claude prompt to appear
 
-let intervalId: ReturnType<typeof setInterval> | null = null
+let tickTimer: ReturnType<typeof setTimeout> | null = null
 const firedToday = new Map<string, string>()
 
 function todayKey(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+/** Compute ms until the start of the next minute, capped at 60s. */
+function msToNextMinute(): number {
+  const now = Date.now()
+  const nextMinute = Math.ceil(now / 60_000) * 60_000
+  return Math.min(60_000, Math.max(1000, nextMinute - now))
+}
+
+function scheduleTick(): void {
+  tickTimer = setTimeout(() => {
+    tickTimer = null
+    checkSchedules()
+    scheduleTick()
+  }, msToNextMinute())
+}
+
 export function startScheduler(): void {
-  if (intervalId) return
-  intervalId = setInterval(checkSchedules, SCHEDULER_INTERVAL_MS)
+  if (tickTimer) return
+  checkSchedules() // check immediately on start in case something is due right now
+  scheduleTick()
 }
 
 export function stopScheduler(): void {
-  if (intervalId) { clearInterval(intervalId); intervalId = null }
+  if (tickTimer) { clearTimeout(tickTimer); tickTimer = null }
 }
 
 function checkSchedules(): void {
@@ -54,6 +64,9 @@ function checkSchedules(): void {
 }
 
 export function fireSchedule(schedule: ScheduledPrompt): void {
+  // Pre-accept the trust dialog so it won't block the scheduled session
+  ensureTrustAccepted()
+
   let bypass = false
   let color: string | undefined
   let title = schedule.name
@@ -87,12 +100,9 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
   const { resetDockIcon: resetIcon } = require('./icon-generator')
   resetIcon()
 
-  // Watch PTY output to detect trust dialog and Claude ready prompt
-  let trustDetected = false
   let promptInjected = false
 
   const maxTimer = setTimeout(() => {
-    // Safety net: inject prompt after max wait even if we didn't detect the prompt
     if (!promptInjected) injectPrompt()
   }, MAX_WAIT_MS)
 
@@ -103,90 +113,42 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
     ptyManager.setDataInterceptor(ptyId, null)
     if (win.isDestroyed()) return
 
-    // Small delay after detecting prompt to let Claude fully render
     setTimeout(() => {
       if (win.isDestroyed()) return
-      debugLog(`injectPrompt: writing prompt (${schedule.prompt.length} chars) to ptyId=${ptyId}`)
       ptyManager.writeToPty(ptyId, schedule.prompt + '\r')
       const session = ptyManager.getByPtyId(ptyId)
-      if (session) {
-        session.scheduledBringToFront = true
-        debugLog(`injectPrompt: bellArmed=${session.bellArmed}, isThinking=${session.isThinking}, cwd=${session.cwd}`)
-      }
+      if (session) session.scheduledBringToFront = true
     }, 500)
   }
 
-  // Accumulate raw PTY output for pattern detection
-  let rawBuffer = ''
-  let trustAccepted = false
-
-  // PTY is created asynchronously (after renderer loads). Poll until it exists.
+  // Wait for PTY to be created (async after renderer loads), then watch for Claude ready signal
   function waitForPtyAndSetup() {
     const session = ptyManager.getByPtyId(ptyId)
     if (!session) {
-      debugLog(`fireSchedule: waiting for PTY ${ptyId} to be created...`)
       setTimeout(waitForPtyAndSetup, 500)
       return
     }
-    debugLog(`fireSchedule: PTY found, setting interceptor`)
     setupInterceptor()
   }
   waitForPtyAndSetup()
 
   function setupInterceptor() {
-  ptyManager.setDataInterceptor(ptyId, (data) => {
-    if (win.isDestroyed()) return
+    let rawBuffer = ''
+    ptyManager.setDataInterceptor(ptyId, (data) => {
+      if (win.isDestroyed()) return
+      rawBuffer += data
 
-    rawBuffer += data
+      // Strip ANSI sequences for matching
+      const stripped = rawBuffer
+        .replace(/\x1b\[[^\x40-\x7e]*[\x40-\x7e]/g, '')
+        .replace(/\x1b\][^\x07]*\x07/g, '')
+        .replace(/\x1b[^[]/g, '')
+        .replace(/[\x00-\x1f]/g, ' ')
 
-    // Strip ALL non-printable characters and ANSI for matching
-    const stripped = rawBuffer.replace(/\x1b\[[^\x40-\x7e]*[\x40-\x7e]/g, '')
-                              .replace(/\x1b\][^\x07]*\x07/g, '')
-                              .replace(/\x1b[^[]/g, '')
-                              .replace(/[\x00-\x1f]/g, ' ')
-
-    const lower = stripped.toLowerCase()
-
-    // Trust dialog: detect common phrases from the Claude Code trust prompt
-    if (!trustDetected && !trustAccepted) {
-      // Log buffer growth for debugging
-      if (stripped.length > 20 && stripped.length % 100 < 20) {
-        debugLog(`Buffer (${stripped.length} chars): ${JSON.stringify(stripped.slice(-200))}`)
+      // Detect Claude ready: "Cost:" status line appears after full init
+      if (!promptInjected && stripped.toLowerCase().includes('cost:')) {
+        injectPrompt()
       }
-      if (lower.includes('safety') || lower.includes('trust') || lower.includes('enter to confirm')) {
-        trustDetected = true
-        console.log('[scheduler] Trust dialog detected, will auto-accept in 1.5s')
-        // Wait for the full menu to render, then press Enter
-        setTimeout(() => {
-          if (win.isDestroyed()) return
-          trustAccepted = true
-          const session = ptyManager.getByPtyId(ptyId)
-          if (session) {
-            console.log('[scheduler] Sending Enter to accept trust dialog')
-            // Try both \r and \n — different PTY implementations may need different line endings
-            session.pty.write('\r')
-            // Also try again after a short delay in case the first one was too early
-            setTimeout(() => {
-              if (!win.isDestroyed() && session.pty) {
-                console.log('[scheduler] Sending Enter again (retry)')
-                session.pty.write('\r')
-              }
-            }, 500)
-          } else {
-            console.log('[scheduler] ERROR: no session found for ptyId', ptyId)
-          }
-        }, 1500)
-        return
-      }
-    }
-
-    // Don't look for ready prompt until trust is handled
-    if (trustDetected && !trustAccepted) return
-
-    // Detect Claude ready: the "Cost:" status line appears after full init
-    if (!promptInjected && lower.includes('cost:')) {
-      injectPrompt()
-    }
-  })
-  } // end setupInterceptor
+    })
+  }
 }
