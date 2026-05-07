@@ -16,6 +16,7 @@ const api = {
   dragStart: (screenX: number, screenY: number) => ipcRenderer.send('orb:drag-start', screenX, screenY),
   dragMove: (screenX: number, screenY: number) => ipcRenderer.send('orb:drag-move', screenX, screenY),
   dragEnd: () => ipcRenderer.send('orb:drag-end'),
+  dragCancel: () => ipcRenderer.send('orb:drag-cancel'),
 
   orbMouseEnter: () => ipcRenderer.send('orb:mouse-enter'),
   orbMouseLeave: () => ipcRenderer.send('orb:mouse-leave'),

@@ -197,6 +197,14 @@ export function createOrbWindow(): BrowserWindow {
     dragStartBounds = null
   })
 
+  ipcMain.on('orb:drag-cancel', () => {
+    if (!orbWindow || !dragStartBounds) { dragStartBounds = null; return }
+    orbWindow.setBounds(dragStartBounds)
+    dragStartBounds = null
+    velocityX = 0
+    velocityY = 0
+  })
+
   if (process.env['ELECTRON_RENDERER_URL']) {
     orbWindow.loadURL(process.env['ELECTRON_RENDERER_URL'] + '#/orb')
   } else {

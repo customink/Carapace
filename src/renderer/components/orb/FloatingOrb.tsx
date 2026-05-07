@@ -203,7 +203,7 @@ export function FloatingOrb() {
     // the mouseup event never fires on this document. Clean up so the stale onMouseMove
     // listener can't fire dragStart on the next interaction.
     const onBlur = () => {
-      if (dragStartedWithMain) window.carapace?.dragEnd()
+      if (dragStartedWithMain) window.carapace?.dragCancel()
       cleanup()
     }
 
