@@ -155,6 +155,14 @@ export function FloatingOrb() {
     let latestY = e.screenY
     let dragStartedWithMain = false
 
+    const cleanup = () => {
+      isDragging.current = false
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0 }
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      window.removeEventListener('blur', onBlur)
+    }
+
     const onMouseMove = (ev: MouseEvent) => {
       if (!isDragging.current) return
       const dx = Math.abs(ev.screenX - dragStart.current.x)
@@ -179,25 +187,29 @@ export function FloatingOrb() {
     }
 
     const onMouseUp = (ev: MouseEvent) => {
-      isDragging.current = false
-      if (rafId) {
-        cancelAnimationFrame(rafId)
-        rafId = 0
-      }
-      if (dragStartedWithMain) {
+      const wasClick = !didDrag.current
+      const wasDragging = dragStartedWithMain
+      cleanup()
+      if (wasDragging) {
         window.carapace?.dragMove(latestX, latestY)
         window.carapace?.dragEnd()
       }
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-
-      if (!didDrag.current) {
+      if (wasClick) {
         window.carapace?.createSession({ cmd: ev.metaKey, ctrl: ev.ctrlKey })
       }
     }
 
+    // When the orb window loses focus (e.g. a new terminal opens after launching a preset),
+    // the mouseup event never fires on this document. Clean up so the stale onMouseMove
+    // listener can't fire dragStart on the next interaction.
+    const onBlur = () => {
+      if (dragStartedWithMain) window.carapace?.dragEnd()
+      cleanup()
+    }
+
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
+    window.addEventListener('blur', onBlur)
   }, [])
 
   const handlePillClick = useCallback((e: React.MouseEvent, pid: number | undefined) => {
