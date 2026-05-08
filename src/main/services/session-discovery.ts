@@ -46,18 +46,26 @@ export async function discoverSessionsAsync(): Promise<SessionState[]> {
 
     const ptySession = ptyManager.getByPid(proc.pid) || ptyManager.getByPid(proc.ppid)
 
+    // If we know the exact Claude session ID, prefer that specific file over findLatestJsonl.
+    // This prevents a new session in the same project dir from shadowing an older session's JSONL.
+    let transcriptFile = proc.transcriptFile
+    if (ptySession?.claudeSessionId && proc.projectDir) {
+      const exactFile = path.join(proc.projectDir, `${ptySession.claudeSessionId}.jsonl`)
+      if (fs.existsSync(exactFile)) transcriptFile = exactFile
+    }
+
     let hasValidTranscript = false
-    if (proc.transcriptFile && fs.existsSync(proc.transcriptFile)) {
+    if (transcriptFile && fs.existsSync(transcriptFile)) {
       if (ptySession) {
-        const mtime = fs.statSync(proc.transcriptFile).mtimeMs
+        const mtime = fs.statSync(transcriptFile).mtimeMs
         hasValidTranscript = mtime >= ptySession.createdAt - 5000
       } else {
         hasValidTranscript = true
       }
     }
 
-    if (hasValidTranscript && proc.transcriptFile) {
-      const parsed = parseSessionJsonl(proc.transcriptFile)
+    if (hasValidTranscript && transcriptFile) {
+      const parsed = parseSessionJsonl(transcriptFile)
       const cost = computeDetailedCost(
         parsed.metrics.inputTokens,
         parsed.metrics.outputTokens,
@@ -155,19 +163,45 @@ export async function discoverSessionsAsync(): Promise<SessionState[]> {
     if (seenIds.has(sessionId)) continue
     seenIds.add(sessionId)
 
+    // Try to recover token data via claudeSessionId — this keeps the gauge accurate
+    // even when detectActiveProcesses() returns empty due to lsof timeout/failure.
+    let fallbackTokens = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0 }
+    let fallbackStartTime = new Date(pty.createdAt).toISOString()
+    let fallbackModel = 'claude-sonnet-4-6'
+    let fallbackCost = 0
+    let fallbackContextPercent = 0
+    let fallbackFirstPrompt = ''
+    let fallbackCompletionCount = 0
+    if (pty.claudeSessionId) {
+      const encoded = pty.cwd.replace(/\//g, '-')
+      const jsonlPath = path.join(PROJECTS_DIR, encoded, `${pty.claudeSessionId}.jsonl`)
+      if (fs.existsSync(jsonlPath)) {
+        const parsed = parseSessionJsonl(jsonlPath)
+        if (parsed.metrics.totalTokens > 0) {
+          fallbackTokens = parsed.metrics
+          fallbackStartTime = parsed.startTime || fallbackStartTime
+          fallbackModel = parsed.model
+          fallbackCost = computeDetailedCost(parsed.metrics.inputTokens, parsed.metrics.outputTokens, 0, parsed.metrics.cachedTokens, parsed.model)
+          fallbackContextPercent = computeContextPercent(parsed.metrics.contextLength, parsed.model)
+          fallbackFirstPrompt = parsed.firstPrompt || ''
+          fallbackCompletionCount = parsed.completionCount
+        }
+      }
+    }
+
     sessions.push({
       id: sessionId,
       projectPath: pty.cwd,
       projectName: extractProjectName(pty.cwd),
-      summary: '',
-      firstPrompt: '',
-      startTime: new Date(pty.createdAt).toISOString(),
+      summary: fallbackFirstPrompt,
+      firstPrompt: fallbackFirstPrompt,
+      startTime: fallbackStartTime,
       durationMinutes: 0,
       status: 'active',
-      model: 'claude-sonnet-4-6',
-      cost: 0,
-      contextPercent: 0,
-      tokens: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0, contextLength: 0 },
+      model: fallbackModel,
+      cost: fallbackCost,
+      contextPercent: fallbackContextPercent,
+      tokens: fallbackTokens,
       toolCounts: {},
       userMessageCount: 0,
       assistantMessageCount: 0,
@@ -177,7 +211,7 @@ export async function discoverSessionsAsync(): Promise<SessionState[]> {
       label: pty.label || '',
       managed: true,
       isThinking: pty.isThinking || false,
-      completionCount: 0
+      completionCount: fallbackCompletionCount
     })
   }
 

@@ -11,6 +11,7 @@ import { PROJECTS_DIR } from '@shared/constants/paths'
 import { formatModelName } from '@shared/utils/format'
 import * as ptyManager from '../services/pty-manager'
 import { updateHistoryEntry } from '../services/session-history'
+import { loadDailyTokens, recordSessionTokens, getDailyTokens } from '../services/daily-tokens-store'
 import type { SessionUpdate } from '../services/session-monitor'
 import type { SessionState } from '@shared/types/session'
 
@@ -20,6 +21,8 @@ export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SESSIONS_LIST, async () => {
     return await discoverSessionsAsync()
   })
+
+  ipcMain.handle('daily-tokens:get', () => getDailyTokens())
 
   ipcMain.handle(IPC_CHANNELS.CREDENTIALS_GET, () => {
     return readCredentials()
@@ -85,9 +88,25 @@ function scheduleBroadcast(): void {
 export function startSessionMonitor(): void {
   if (monitor) return
 
+  loadDailyTokens()
   monitor = new SessionMonitor()
 
   monitor.on('session:updated', (update: SessionUpdate) => {
+    // Accumulate daily tokens in the persistent store.
+    // Uses the MAX ever seen for this session so /clear (which resets the JSONL)
+    // doesn't erase tokens that were already consumed.
+    const total = update.parsed.metrics.totalTokens
+    if (update.sessionId && total > 0) {
+      const changed = recordSessionTokens(update.sessionId, total)
+      if (changed) {
+        // Push the new daily total to all windows immediately
+        const daily = getDailyTokens()
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) win.webContents.send('daily-tokens:updated', daily)
+        }
+      }
+    }
+
     scheduleBroadcast()
 
     // Direct completion detection — bypasses broadcast throttle and discovery cache.

@@ -14,3 +14,4 @@ export const CCSTATUSLINE_CACHE = join(HOME, '.cache', 'ccstatusline', 'usage.js
 export const CARAPACE_CACHE_DIR = join(HOME, '.cache', 'carapace')
 export const CARAPACE_USAGE_CACHE = join(CARAPACE_CACHE_DIR, 'usage.json')
 export const STACKS_DIR = join(CLAUDE_DIR, 'stacks')
+export const DAILY_TOKENS_FILE = join(CLAUDE_DIR, 'usage-data', 'carapace-daily-tokens.json')

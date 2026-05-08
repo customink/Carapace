@@ -10,9 +10,9 @@ let velocityX = 0
 let velocityY = 0
 let physicsTimer: ReturnType<typeof setInterval> | null = null
 
-const WINDOW_WIDTH = 450
+const WINDOW_WIDTH = 570
 const WINDOW_HEIGHT = 380
-const MAIN_ORB_CENTER_X = 70
+const MAIN_ORB_CENTER_X = 190
 const MAIN_ORB_CENTER_Y = 140
 
 export function createOrbWindow(): BrowserWindow {
@@ -21,7 +21,7 @@ export function createOrbWindow(): BrowserWindow {
   orbWindow = new BrowserWindow({
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
-    x: -20,
+    x: -140,
     y: -100,
     transparent: true,
     frame: false,
@@ -81,11 +81,11 @@ export function createOrbWindow(): BrowserWindow {
   // Custom drag — also moves panel if visible
   // The visual content (orb + mini-orbs) is inset ~29px from the window edges.
   // Allow the transparent margin to go off-screen so the orb can sit near edges.
-  // Left: keep orb just visible (orb left edge is at CENTER_X - radius = 35px from window left)
-  const VISUAL_INSET_LEFT = 35
+  // Left: keep orb just visible (orb left edge is at CENTER_X - radius = 155px from window left)
+  const VISUAL_INSET_LEFT = 155
   // Right: allow the orb to sit ~20px from the right screen edge.
-  // Orb center X=70, radius=35 → orb right edge is at 105px from window left.
-  // VISUAL_INSET_RIGHT = WINDOW_WIDTH - orb_center - orb_radius - 20px safety = 450 - 70 - 35 - 20
+  // Orb center X=190, radius=35 → orb right edge is at 225px from window left.
+  // VISUAL_INSET_RIGHT = WINDOW_WIDTH - orb_center - orb_radius - 20px safety = 570 - 190 - 35 - 20
   const VISUAL_INSET_RIGHT = 325
   // Y: allow orb to reach top/bottom edges (orb is near top of window)
   const VISUAL_INSET_Y = WINDOW_HEIGHT - 30

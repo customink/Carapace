@@ -53,6 +53,14 @@ const api = {
     ipcRenderer.on('app:settings-updated', handler)
     return () => ipcRenderer.removeListener('app:settings-updated', handler)
   },
+
+  getDailyTokens: () => ipcRenderer.invoke('daily-tokens:get'),
+
+  onDailyTokensUpdated: (callback: (tokens: number) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, tokens: number) => callback(tokens)
+    ipcRenderer.on('daily-tokens:updated', handler)
+    return () => ipcRenderer.removeListener('daily-tokens:updated', handler)
+  },
 }
 
 contextBridge.exposeInMainWorld('carapace', api)

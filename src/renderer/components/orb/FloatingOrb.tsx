@@ -14,7 +14,7 @@ function darkenColor(hex: string, factor = 0.45): string {
 }
 
 const MAIN_ORB_SIZE = 70;
-const CENTER_X = 70; // main orb on the left
+const CENTER_X = 190; // main orb — 120px left margin added for token counter space
 const CENTER_Y = 140; // centered in 380px window
 const PILL_LEFT = CENTER_X + MAIN_ORB_SIZE / 2 + 12; // right edge of orb + gap
 const PILL_HEIGHT = 26;
@@ -52,6 +52,12 @@ function gaugeColor(pct: number): string {
   return `hsl(${120 - c * 120},75%,55%)`;
 }
 
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
+  return `${n}`;
+}
+
 export function FloatingOrb() {
   const { sessions, activeSessions } = useSessions();
   const isDragging = useRef(false);
@@ -61,28 +67,29 @@ export function FloatingOrb() {
   const [thinkingPids, setThinkingPids] = useState<Set<number>>(new Set());
   const [hoveredPillId, setHoveredPillId] = useState<string | null>(null);
   const [gaugeHovered, setGaugeHovered] = useState(false);
+  const [orbHovered, setOrbHovered] = useState(false);
   const thinkingInitialized = useRef(false);
   const [dailyTokenGoal, setDailyTokenGoal] = useState(0);
+  const [dailyTokens, setDailyTokens] = useState(0);
 
-  // Load app settings on mount and subscribe to changes
+  // Load app settings and daily token count on mount; subscribe to updates
   useEffect(() => {
     const api = window.carapace as any;
     api
       ?.getAppSettings?.()
       .then((s: any) => setDailyTokenGoal(s?.dailyTokenGoal ?? 0));
-    const unsub = api?.onSettingsUpdated?.((s: any) =>
+    api?.getDailyTokens?.().then((t: number) => setDailyTokens(t ?? 0));
+    const unsubSettings = api?.onSettingsUpdated?.((s: any) =>
       setDailyTokenGoal(s?.dailyTokenGoal ?? 0),
     );
-    return () => unsub?.();
+    const unsubTokens = api?.onDailyTokensUpdated?.((t: number) =>
+      setDailyTokens(t),
+    );
+    return () => {
+      unsubSettings?.();
+      unsubTokens?.();
+    };
   }, []);
-
-  // Today's total tokens across all sessions that started today
-  const todayTokens = useMemo(() => {
-    const today = new Date().toDateString();
-    return sessions
-      .filter((s) => new Date(s.startTime).toDateString() === today)
-      .reduce((sum, s) => sum + (s.tokens?.totalTokens ?? 0), 0);
-  }, [sessions]);
 
   // Only show sessions spawned by Carapace on the orb
   const managedSessions = activeSessions.filter((s) => s.managed);
@@ -488,13 +495,15 @@ export function FloatingOrb() {
       {/* Daily token gauge — left arc around orb, drains top→bottom as tokens are consumed */}
       {dailyTokenGoal > 0 &&
         (() => {
-          const pct = Math.min(1, todayTokens / dailyTokenGoal);
+          const pct = Math.min(1, dailyTokens / dailyTokenGoal);
           // fillAngle: top endpoint of remaining fill. pct=0 → full arc; pct=1 → nothing.
           const fillAngle = GAUGE_END + pct * GAUGE_SPAN;
           const color = gaugeColor(pct);
           const pctLabel = Math.round(pct * 100);
-          const title = `${todayTokens.toLocaleString()} / ${dailyTokenGoal.toLocaleString()} tokens today (${pctLabel}% consumed)`;
+          const title = `${dailyTokens.toLocaleString()} / ${dailyTokenGoal.toLocaleString()} tokens today (${pctLabel}% consumed)`;
           const hasFill = pct < 1;
+
+          const showCounter = (orbHovered || gaugeHovered) && dailyTokens > 0;
 
           return (
             <svg
@@ -598,6 +607,8 @@ export function FloatingOrb() {
             "0 0 40px rgba(124, 58, 237, 0.7), 0 0 20px rgba(37, 99, 235, 0.5), 0 4px 20px rgba(0,0,0,0.4)",
         }}
         transition={{ duration: 0.2 }}
+        onHoverStart={() => setOrbHovered(true)}
+        onHoverEnd={() => setOrbHovered(false)}
         onMouseDown={handleMainMouseDown}
       >
         {/* Highlight */}
@@ -619,6 +630,58 @@ export function FloatingOrb() {
           </span>
         </div>
       </motion.div>
+
+      {/* Token counter — renders after orb so it paints on top; anchored left of orb, slides in from left */}
+      <AnimatePresence>
+        {(orbHovered || gaugeHovered) &&
+          dailyTokenGoal > 0 &&
+          dailyTokens > 0 &&
+          (() => {
+            const pct = Math.min(1, dailyTokens / dailyTokenGoal);
+            const color = gaugeColor(pct);
+            return (
+              <motion.div
+                key="token-counter"
+                initial={{ x: 50, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 50, opacity: 0 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                style={{
+                  position: "absolute",
+                  right: 440,
+                  top: CENTER_Y - 22,
+                  pointerEvents: "none",
+                  background: "rgba(0,0,0,0.78)",
+                  backdropFilter: "blur(8px)",
+                  borderRadius: 8,
+                  padding: "5px 10px",
+                  lineHeight: 1.3,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 17,
+                    fontWeight: 800,
+                    color,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {formatTokenCount(dailyTokens)}
+                </div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: "rgba(255,255,255,0.45)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  / {formatTokenCount(dailyTokenGoal)}
+                </div>
+              </motion.div>
+            );
+          })()}
+      </AnimatePresence>
     </div>
   );
 }
