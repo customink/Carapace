@@ -22,36 +22,14 @@ const PILL_HEIGHT = 26;
 const PILL_GAP = 6;
 const PILL_MAX_WIDTH = 300;
 
-// Gauge arc — hugs the left side of the orb.
-// Angles use standard math (0°=right, 90°=up); -sin maps to SVG screen space.
-// 135° = upper-left (full/green), 225° = lower-left (empty/red).
-// Fill starts at top and drains downward as tokens are consumed.
-// sweep-flag=1 (CW in SVG) selects the left-side arc.
-const GAUGE_R = 48;
-const GAUGE_SW = 8;
-const GAUGE_START = 225;
-const GAUGE_END = 135;
-const GAUGE_SPAN = GAUGE_START - GAUGE_END; // 90°
-
-function gaugePoint(angleDeg: number): [number, number] {
-  const rad = (angleDeg * Math.PI) / 180;
-  return [
-    CENTER_X + GAUGE_R * Math.cos(rad),
-    CENTER_Y - GAUGE_R * Math.sin(rad),
-  ];
-}
-
-function gaugeArcPath(startDeg: number, endDeg: number): string {
-  const [x1, y1] = gaugePoint(startDeg);
-  const [x2, y2] = gaugePoint(endDeg);
-  const span = Math.abs(startDeg - endDeg);
-  return `M ${x1} ${y1} A ${GAUGE_R} ${GAUGE_R} 0 ${span > 180 ? 1 : 0} 1 ${x2} ${y2}`;
-}
-
-function gaugeColor(pct: number): string {
-  const c = Math.max(0, Math.min(1, pct));
-  return `hsl(${120 - c * 120},75%,55%)`;
-}
+// Round fuel gauge — sits where the old left-side arc gauge was, between outer arc and orb.
+// SVG angle convention: 0°=right, 90°=DOWN (SVG y-axis is inverted vs math).
+// Arc: 270° clockwise from 135° (lower-left) to 45° (lower-right), going over the top.
+// Green = right side (full / 0% consumed); Red = left side (empty / 100% consumed).
+// Needle: SVG angle = 45 - pct * 270 (starts at lower-right/green, sweeps CCW to lower-left/red).
+const TOKEN_GAUGE_R = 11; // 22px diameter — same as cycle button
+const TOKEN_GAUGE_X = CENTER_X;                                          // centered below orb
+const TOKEN_GAUGE_Y = CENTER_Y + MAIN_ORB_SIZE / 2 + TOKEN_GAUGE_R + 5; // 5px gap from orb
 
 function formatTokenCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -59,21 +37,18 @@ function formatTokenCount(n: number): string {
   return `${n}`;
 }
 
-// Outer session-token gauge — same arc LENGTH as inner, centered on 180° (left of orb).
-// Arc length equality: GAUGE2_R × θ2 = GAUGE_R × θ1  →  θ2 = 90° × (48/R2)
-// +2px extra spacing over previous: inner outer-edge=52, desired outer inner-edge=57 → GAUGE2_R=61
-const GAUGE2_R = 61;
-const GAUGE2_SW = 8; // matches GAUGE_SW
-// Angular span that gives the same arc length as the inner gauge at this radius
-const GAUGE2_SPAN = (GAUGE_SPAN * GAUGE_R) / GAUGE2_R; // ≈ 70.8°
+// Outer session-token gauge — centered on 180° (left of orb), hugging the orb surface.
+const GAUGE2_R = 48; // inner edge at 44px from center → 9px gap from orb (radius 35)
+const GAUGE2_SW = 8;
+const GAUGE2_SPAN = 90; // degrees
 // Both arcs centered at 180° (directly left of orb)
 const GAUGE2_START = 180 + GAUGE2_SPAN / 2; // ≈ 215.4°
 const GAUGE2_END = 180 - GAUGE2_SPAN / 2;   // ≈ 144.6°
 const SEGMENT_GAP_HALF = 1.0; // degrees trimmed from interior ends between adjacent segments
 const CYCLE_BTN_R = 11; // 22px button — fits 14px icons with 4px margin
-// Cycle button sits just below the bottom endpoint of the outer arc
-const CYCLE_BTN_X = Math.round(CENTER_X + GAUGE2_R * Math.cos((GAUGE2_START * Math.PI) / 180));
-const CYCLE_BTN_Y = Math.round(CENTER_Y - GAUGE2_R * Math.sin((GAUGE2_START * Math.PI) / 180)) + 20;
+// Cycle button sits to the left of the fuel gauge, same height
+const CYCLE_BTN_X = TOKEN_GAUGE_X - TOKEN_GAUGE_R - CYCLE_BTN_R - 6;
+const CYCLE_BTN_Y = TOKEN_GAUGE_Y;
 // Max tooltip width keeps it fully left of the outer gauge arc (including outline)
 const TOOLTIP_MAX_W = Math.floor(CENTER_X - GAUGE2_R - (GAUGE2_SW + 2) / 2 - 12);
 
@@ -170,8 +145,7 @@ export function FloatingOrb() {
   const [attentionPids, setAttentionPids] = useState<Set<number>>(new Set());
   const [thinkingPids, setThinkingPids] = useState<Set<number>>(new Set());
   const [hoveredPillId, setHoveredPillId] = useState<string | null>(null);
-  const [gaugeHovered, setGaugeHovered] = useState(false);
-  const [orbHovered, setOrbHovered] = useState(false);
+  const [tokenGaugeHovered, setTokenGaugeHovered] = useState(false);
   const [hoveredSegmentId, setHoveredSegmentId] = useState<string | null>(null);
   const [gaugeMode, setGaugeMode] = useState(0); // 0–3: tokens/session, cost/session, tokens/model, cost/model
   const [cycleBtnHovered, setCycleBtnHovered] = useState(false);
@@ -528,16 +502,16 @@ export function FloatingOrb() {
         });
       }
 
-      // Check budget gauge arc (left side of orb)
-      if (!over && dailyTokenGoal > 0) {
-        const dx = mx - CENTER_X;
-        const dy = my - CENTER_Y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const inBand =
-          dist >= GAUGE_R - GAUGE_SW / 2 - PAD &&
-          dist <= GAUGE_R + GAUGE_SW / 2 + PAD;
-        if (inBand && dx < 10) over = true;
+      // Check round token fuel gauge — also drive hover state directly from mousemove
+      // (onMouseEnter is unreliable with Electron's setIgnoreMouseEvents pattern)
+      let overGauge = false;
+      if (dailyTokenGoal > 0) {
+        const dx = mx - TOKEN_GAUGE_X;
+        const dy = my - TOKEN_GAUGE_Y;
+        overGauge = dx * dx + dy * dy <= (TOKEN_GAUGE_R + PAD) * (TOKEN_GAUGE_R + PAD);
+        if (overGauge) over = true;
       }
+      setTokenGaugeHovered(overGauge);
 
       // Check outer session-token gauge arc
       if (!over) {
@@ -563,7 +537,7 @@ export function FloatingOrb() {
         window.carapace?.setIgnoreMouseEvents(shouldIgnore);
       }
     },
-    [pills, dailyTokenGoal],
+    [pills, dailyTokenGoal, setTokenGaugeHovered],
   );
 
   return (
@@ -574,6 +548,7 @@ export function FloatingOrb() {
       onMouseEnter={() => window.carapace?.orbMouseEnter()}
       onMouseLeave={() => {
         window.carapace?.orbMouseLeave();
+        setTokenGaugeHovered(false);
         if (!lastIgnored.current) {
           lastIgnored.current = true;
           window.carapace?.setIgnoreMouseEvents(true);
@@ -696,86 +671,130 @@ export function FloatingOrb() {
         ))}
       </AnimatePresence>
 
-      {/* Daily token gauge — left arc around orb, drains top→bottom as tokens are consumed */}
-      {dailyTokenGoal > 0 &&
-        (() => {
-          const pct = Math.min(1, dailyTokens / dailyTokenGoal);
-          // fillAngle: top endpoint of remaining fill. pct=0 → full arc; pct=1 → nothing.
-          const fillAngle = GAUGE_END + pct * GAUGE_SPAN;
-          const color = gaugeColor(pct);
-          const pctLabel = Math.round(pct * 100);
-          const title = `${dailyTokens.toLocaleString()} / ${dailyTokenGoal.toLocaleString()} tokens today (${pctLabel}% consumed)`;
-          const hasFill = pct < 1;
+      {/* Round fuel gauge — below the orb, shows daily token budget consumption */}
+      {dailyTokenGoal > 0 && (() => {
+        const pct = Math.min(1, dailyTokens / dailyTokenGoal);
+        // Needle: SVG angle = 45 - pct * 270 (starts lower-right/green, sweeps CCW to lower-left/red)
+        const needleAngleRad = ((45 - pct * 270) * Math.PI) / 180;
+        const needleLen = 5.5;
+        const nx = 11 + needleLen * Math.cos(needleAngleRad);
+        const ny = 11 + needleLen * Math.sin(needleAngleRad);
+        return (
+          <motion.div
+            style={{
+              position: "absolute",
+              left: TOKEN_GAUGE_X - TOKEN_GAUGE_R,
+              top: TOKEN_GAUGE_Y - TOKEN_GAUGE_R,
+              width: TOKEN_GAUGE_R * 2,
+              height: TOKEN_GAUGE_R * 2,
+              borderRadius: "50%",
+              cursor: "default",
+            }}
+            animate={{
+              filter: tokenGaugeHovered
+                ? "drop-shadow(0 0 6px rgba(255,255,255,0.35))"
+                : "drop-shadow(0 0 3px rgba(0,0,0,0.5))",
+            }}
+            transition={{ duration: 0.15 }}
+          >
+            <svg viewBox="0 0 22 22" width={TOKEN_GAUGE_R * 2} height={TOKEN_GAUGE_R * 2}>
+              <defs>
+                {/* Gradient: red (left/empty) → yellow (mid) → green (right/full) */}
+                <linearGradient id="fuelGrad" gradientUnits="userSpaceOnUse"
+                  x1="4.5" y1="11" x2="17.5" y2="11">
+                  <stop offset="0%"   stopColor="#f87171" />
+                  <stop offset="55%"  stopColor="#facc15" />
+                  <stop offset="100%" stopColor="#4ade80" />
+                </linearGradient>
+                {/* Radial gradient for glass bevel */}
+                <radialGradient id="fuelBevel" cx="38%" cy="32%" r="55%">
+                  <stop offset="0%"   stopColor="rgba(255,255,255,0.18)" />
+                  <stop offset="100%" stopColor="rgba(255,255,255,0.00)" />
+                </radialGradient>
+              </defs>
 
-          const showCounter = (orbHovered || gaugeHovered) && dailyTokens > 0;
+              {/* Background disc */}
+              <circle cx="11" cy="11" r="11"
+                fill="rgba(12,12,20,0.88)"
+                stroke="rgba(255,255,255,0.18)" strokeWidth="0.7" />
 
-          return (
-            <svg
-              className="absolute"
-              style={{
-                left: 0,
-                top: 0,
-                width: "100%",
-                height: "100%",
-                overflow: "visible",
-              }}
-            >
-              <title>{title}</title>
+              {/* Gradient glass bevel */}
+              <circle cx="11" cy="11" r="11" fill="url(#fuelBevel)" style={{ pointerEvents: "none" }} />
 
-              {/* Invisible wide hit area for hover detection */}
-              <path
-                d={gaugeArcPath(GAUGE_START, GAUGE_END)}
+              {/* Track arc — 270° clockwise from 135° to 45° (over the top) */}
+              <path d="M 6.05 15.95 A 7 7 0 1 1 15.95 15.95"
                 fill="none"
-                stroke="rgba(0,0,0,0)"
-                strokeWidth={GAUGE_SW + 16}
-                strokeLinecap="round"
-                onMouseEnter={() => setGaugeHovered(true)}
-                onMouseLeave={() => setGaugeHovered(false)}
-              />
-
-              {/* Track outline — visible on light backgrounds */}
-              <path
-                d={gaugeArcPath(GAUGE_START, GAUGE_END)}
-                fill="none"
-                stroke="rgba(140,155,180,0.22)"
-                strokeWidth={GAUGE_SW + 2}
+                stroke="rgba(255,255,255,0.10)"
+                strokeWidth="2"
                 strokeLinecap="round"
                 style={{ pointerEvents: "none" }}
               />
-              {/* Track */}
-              <path
-                d={gaugeArcPath(GAUGE_START, GAUGE_END)}
+
+              {/* Colored gradient arc */}
+              <path d="M 6.05 15.95 A 7 7 0 1 1 15.95 15.95"
                 fill="none"
-                stroke="rgba(255,255,255,0.22)"
-                strokeWidth={GAUGE_SW}
+                stroke="url(#fuelGrad)"
+                strokeWidth="2"
                 strokeLinecap="round"
-                style={{
-                  filter: gaugeHovered
-                    ? "drop-shadow(0 0 7px rgba(210,220,240,0.55))"
-                    : "none",
-                  transition: "filter 0.2s ease",
-                }}
+                style={{ pointerEvents: "none", opacity: 0.85 }}
               />
 
-              {/* Fill — remaining budget, drains top→bottom */}
-              {hasFill && (
-                <path
-                  d={gaugeArcPath(GAUGE_START, fillAngle)}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={GAUGE_SW}
-                  strokeLinecap="round"
-                  style={{
-                    filter: gaugeHovered
-                      ? `drop-shadow(0 0 3px ${color}88) drop-shadow(0 0 10px ${color}77)`
-                      : `drop-shadow(0 0 3px ${color}88)`,
-                    transition: "filter 0.2s ease",
-                  }}
-                />
-              )}
+              {/* Needle shadow */}
+              <line x1="11" y1="11" x2={nx + 0.3} y2={ny + 0.3}
+                stroke="rgba(0,0,0,0.45)" strokeWidth="1.4" strokeLinecap="round"
+                style={{ pointerEvents: "none" }} />
+
+              {/* Needle */}
+              <line x1="11" y1="11" x2={nx} y2={ny}
+                stroke="rgba(255,255,255,0.95)" strokeWidth="1.2" strokeLinecap="round"
+                style={{ pointerEvents: "none" }} />
+
+              {/* Center pivot */}
+              <circle cx="11" cy="11" r="1.4"
+                fill="rgba(255,255,255,0.90)"
+                style={{ pointerEvents: "none" }} />
             </svg>
-          );
-        })()}
+          </motion.div>
+        );
+      })()}
+
+      {/* Token fuel gauge tooltip — shows on hover */}
+      <AnimatePresence>
+        {tokenGaugeHovered && dailyTokenGoal > 0 && (
+          <motion.div
+            key="fuel-tooltip"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.15 }}
+            style={{
+              position: "absolute",
+              left: TOKEN_GAUGE_X - 38,
+              top: TOKEN_GAUGE_Y + TOKEN_GAUGE_R + 6,
+              background: "rgba(0,0,0,0.82)",
+              backdropFilter: "blur(8px)",
+              borderRadius: 8,
+              padding: "4px 10px",
+              pointerEvents: "none",
+              whiteSpace: "nowrap",
+              textAlign: "center",
+              lineHeight: 1.3,
+            }}
+          >
+            <div style={{
+              fontSize: 15,
+              fontWeight: 800,
+              color: `hsl(${Math.max(0, 120 - Math.min(1, dailyTokens / dailyTokenGoal) * 120)}, 75%, 55%)`,
+              whiteSpace: "nowrap",
+            }}>
+              {formatTokenCount(dailyTokens)}
+            </div>
+            <div style={{ fontSize: 10, fontWeight: 500, color: "rgba(255,255,255,0.45)", whiteSpace: "nowrap" }}>
+              / {formatTokenCount(dailyTokenGoal)}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Session-token gauge — outer arc, colored segments per session by totalTokens */}
       <svg
@@ -1018,8 +1037,6 @@ export function FloatingOrb() {
             "0 0 40px rgba(124, 58, 237, 0.7), 0 0 20px rgba(37, 99, 235, 0.5), 0 4px 20px rgba(0,0,0,0.4)",
         }}
         transition={{ duration: 0.2 }}
-        onHoverStart={() => setOrbHovered(true)}
-        onHoverEnd={() => setOrbHovered(false)}
         onMouseDown={handleMainMouseDown}
       >
         {/* Highlight */}
@@ -1042,58 +1059,6 @@ export function FloatingOrb() {
         </div>
       </motion.div>
 
-      {/* Token counter — below the orb, slides up on hover */}
-      <AnimatePresence>
-        {(orbHovered || gaugeHovered) &&
-          dailyTokenGoal > 0 &&
-          dailyTokens > 0 &&
-          (() => {
-            const pct = Math.min(1, dailyTokens / dailyTokenGoal);
-            const color = gaugeColor(pct);
-            return (
-              <motion.div
-                key="token-counter"
-                initial={{ y: -6, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: -6, opacity: 0 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-                style={{
-                  position: "absolute",
-                  left: CENTER_X - 38,
-                  top: CENTER_Y + MAIN_ORB_SIZE / 2 + 8,
-                  pointerEvents: "none",
-                  background: "rgba(0,0,0,0.78)",
-                  backdropFilter: "blur(8px)",
-                  borderRadius: 8,
-                  padding: "4px 10px",
-                  lineHeight: 1.3,
-                  textAlign: "center",
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 15,
-                    fontWeight: 800,
-                    color,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {formatTokenCount(dailyTokens)}
-                </div>
-                <div
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 500,
-                    color: "rgba(255,255,255,0.45)",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  / {formatTokenCount(dailyTokenGoal)}
-                </div>
-              </motion.div>
-            );
-          })()}
-      </AnimatePresence>
     </div>
   );
 }

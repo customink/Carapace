@@ -80,12 +80,11 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 - Per-stack **Skip Permissions** flag — mark a stack to always launch with `--dangerously-skip-permissions`
 
 ### Daily Token Gauge
-- Curved arc gauge on the left side of the orb tracking today's total token consumption across all sessions
-- Starts full and green at the top; drains downward and shifts yellow → red as more tokens are consumed
+- Round fuel-gauge dial below the orb tracking today's total token consumption across all sessions
+- Gradient arc from red (left / at limit) to green (right / full budget remaining); needle sweeps from green toward red as tokens are consumed
 - Set a max daily token goal in Settings → **Max Daily Tokens** (0 hides the gauge)
 - Updates in real-time as JSONL transcripts change — no manual refresh needed
-- Hover the gauge for a whitish-gray glow on the track and a color-matched glow on the fill
-- Hover tooltip shows: tokens used / goal / percentage consumed
+- Hover the gauge for a glow effect; tooltip shows tokens used and daily goal
 
 ### Session Usage Gauge
 - Second concentric arc gauge (outer ring) visualizing today's usage breakdown across sessions and models
