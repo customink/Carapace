@@ -1,19 +1,103 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
+import { homedir } from 'os'
 import { IPC_CHANNELS } from './channels'
 import { discoverSessionsAsync, getCachedSessions } from '../services/session-discovery'
 import { readCredentials, readSettings } from '../services/settings-reader'
 import { fetchUsageData } from '../services/usage-fetcher'
 import { SessionMonitor } from '../services/session-monitor'
 import { parseSessionJsonl } from '../services/jsonl-parser'
+import { computeDetailedCost } from '../services/cost-calculator'
 import { PROJECTS_DIR } from '@shared/constants/paths'
 import { formatModelName } from '@shared/utils/format'
 import * as ptyManager from '../services/pty-manager'
 import { updateHistoryEntry } from '../services/session-history'
-import { loadDailyTokens, recordSessionTokens, getDailyTokens } from '../services/daily-tokens-store'
+import { loadDailyTokens, recordSessionData, getDailyTokens, getDailySessionBreakdown } from '../services/daily-tokens-store'
 import type { SessionUpdate } from '../services/session-monitor'
 import type { SessionState } from '@shared/types/session'
+
+const HISTORY_FILE = path.join(homedir(), '.claude', 'usage-data', 'carapace-session-history.json')
+
+// Build a lookup map from claudeSessionId → { title, color, folder } from session history.
+// Used to enrich the daily breakdown for sessions that have already ended.
+function buildHistoryMap(): Map<string, { title: string; color: string; folder: string }> {
+  const map = new Map<string, { title: string; color: string; folder: string }>()
+  try {
+    const entries = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8')) as Array<{
+      claudeSessionId?: string; title?: string; color?: string; folder?: string
+    }>
+    for (const e of entries) {
+      if (e.claudeSessionId && !map.has(e.claudeSessionId)) {
+        map.set(e.claudeSessionId, {
+          title: e.title || '',
+          color: e.color || '',
+          folder: e.folder || '',
+        })
+      }
+    }
+  } catch { /* ignore */ }
+  return map
+}
+
+/** Locate a session's JSONL file by sessionId, using projectPath hint if available. */
+function findSessionJsonl(sessionId: string, projectPath?: string): string | undefined {
+  if (projectPath) {
+    const encoded = projectPath.replace(/\//g, '-')
+    const candidate = path.join(PROJECTS_DIR, encoded, `${sessionId}.jsonl`)
+    if (fs.existsSync(candidate)) return candidate
+  }
+  // Fallback: scan all project dirs
+  try {
+    for (const dir of fs.readdirSync(PROJECTS_DIR)) {
+      const candidate = path.join(PROJECTS_DIR, dir, `${sessionId}.jsonl`)
+      if (fs.existsSync(candidate)) return candidate
+    }
+  } catch { /* ignore */ }
+  return undefined
+}
+
+function enrichedBreakdown() {
+  const raw = getDailySessionBreakdown()
+  const hist = buildHistoryMap()
+
+  return raw.map(e => {
+    const h = hist.get(e.sessionId)
+
+    // Name priority: PTY title (live) → history title → history folder → project folder
+    const name = e.name
+      || h?.title
+      || (h?.folder ? h.folder.split('/').filter(Boolean).pop() : undefined)
+      || (e.projectPath ? e.projectPath.split('/').filter(Boolean).pop() : undefined)
+      || undefined
+
+    // Color priority: PTY color (live) → history color
+    const color = e.color || h?.color || undefined
+
+    // If model or cost is missing, look them up from the JSONL transcript
+    let { model, cost } = e
+    if (!model || cost === 0) {
+      try {
+        const jsonlPath = findSessionJsonl(e.sessionId, e.projectPath || h?.folder)
+        if (jsonlPath) {
+          const parsed = parseSessionJsonl(jsonlPath)
+          if (!model && parsed.model) model = parsed.model
+          if (cost === 0 && parsed.metrics.totalTokens > 0) {
+            cost = computeDetailedCost(
+              parsed.metrics.inputTokens,
+              parsed.metrics.outputTokens,
+              0,
+              parsed.metrics.cachedTokens,
+              parsed.model,
+            )
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    return { ...e, name, color, model, cost }
+  })
+}
 
 let monitor: SessionMonitor | null = null
 
@@ -23,6 +107,7 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('daily-tokens:get', () => getDailyTokens())
+  ipcMain.handle('daily-tokens:get-breakdown', () => enrichedBreakdown())
 
   ipcMain.handle(IPC_CHANNELS.CREDENTIALS_GET, () => {
     return readCredentials()
@@ -97,12 +182,22 @@ export function startSessionMonitor(): void {
     // doesn't erase tokens that were already consumed.
     const total = update.parsed.metrics.totalTokens
     if (update.sessionId && total > 0) {
-      const changed = recordSessionTokens(update.sessionId, total)
+      // Resolve color + name from any PTY session in the same project dir
+      const ptySess = ptyManager.getByEncodedCwd(update.projectEncoded)
+      const matchedPty = ptySess.find(p => p.claudeSessionId === update.sessionId) || ptySess[0]
+      const color = matchedPty?.color
+      const name = matchedPty?.title || undefined
+
+      const changed = recordSessionData(update.sessionId, total, update.cost, update.parsed.model, color, name, update.projectPath)
       if (changed) {
-        // Push the new daily total to all windows immediately
+        // Push updated daily total + enriched per-session breakdown to all windows immediately
         const daily = getDailyTokens()
+        const breakdown = enrichedBreakdown()
         for (const win of BrowserWindow.getAllWindows()) {
-          if (!win.isDestroyed()) win.webContents.send('daily-tokens:updated', daily)
+          if (!win.isDestroyed()) {
+            win.webContents.send('daily-tokens:updated', daily)
+            win.webContents.send('daily-tokens:breakdown-updated', breakdown)
+          }
         }
       }
     }

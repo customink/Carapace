@@ -61,6 +61,14 @@ const api = {
     ipcRenderer.on('daily-tokens:updated', handler)
     return () => ipcRenderer.removeListener('daily-tokens:updated', handler)
   },
+
+  getDailySessionBreakdown: () => ipcRenderer.invoke('daily-tokens:get-breakdown'),
+
+  onDailyBreakdownUpdated: (callback: (breakdown: unknown[]) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, breakdown: unknown[]) => callback(breakdown)
+    ipcRenderer.on('daily-tokens:breakdown-updated', handler)
+    return () => ipcRenderer.removeListener('daily-tokens:breakdown-updated', handler)
+  },
 }
 
 contextBridge.exposeInMainWorld('carapace', api)

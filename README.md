@@ -94,8 +94,12 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 - Four display modes cycled by the mode button below the gauge:
   - **Tokens / Session** — token consumption per individual session (person + bolt icon)
   - **Cost / Session** — dollar cost per session (person + $ icon)
-  - **Tokens / Model** — token consumption grouped by model family: Opus, Sonnet, Haiku (chip + bolt icon)
-  - **Cost / Model** — cost grouped by model family (chip + $ icon)
+  - **Tokens / Model** — token consumption grouped by model version: Sonnet 4.6, Opus 4.7, Haiku 4.5, etc. (chip + bolt icon)
+  - **Cost / Model** — cost grouped by model version (chip + $ icon)
+- Tracks all sessions started today even after they are closed — backed by the same persistent daily-token store as the budget gauge
+- Session names resolved in priority order: preset/stack title → session title → folder name
+- Session colors matched to the orb color assigned when the session was launched
+- Cost and model data for each session enriched from JSONL transcripts at query time
 - Hover a segment to highlight it and show a tooltip with the session name and metric value
 - Mode button shows a fused icon representing the current mode; hovering shows a tooltip label below
 

@@ -132,19 +132,28 @@ const GAUGE_MODE_ICONS: React.ReactNode[] = [
   </svg>,
 ];
 
-const MODEL_COLORS: Record<string, string> = {
-  Opus: '#A78BFA',
-  Sonnet: '#60A5FA',
-  Haiku: '#34D399',
-  Other: '#9CA3AF',
-};
-
+// Return a versioned display name: "claude-sonnet-4-6" → "Sonnet 4.6"
 function modelFamily(model: string): string {
-  const m = (model || '').toLowerCase();
+  if (!model) return 'Other';
+  const match = model.match(/claude-(\w+)-(\d+)-(\d+)/);
+  if (match) {
+    const name = match[1]!.charAt(0).toUpperCase() + match[1]!.slice(1);
+    return `${name} ${match[2]}.${match[3]}`;
+  }
+  const m = model.toLowerCase();
   if (m.includes('opus')) return 'Opus';
   if (m.includes('sonnet')) return 'Sonnet';
   if (m.includes('haiku')) return 'Haiku';
   return 'Other';
+}
+
+// Color based on model family prefix — handles versioned names like "Sonnet 4.6"
+function modelColor(label: string): string {
+  const l = label.toLowerCase();
+  if (l.includes('opus')) return '#A78BFA';
+  if (l.includes('sonnet')) return '#60A5FA';
+  if (l.includes('haiku')) return '#34D399';
+  return '#9CA3AF';
 }
 
 function formatCost(n: number): string {
@@ -169,23 +178,23 @@ export function FloatingOrb() {
   const thinkingInitialized = useRef(false);
   const [dailyTokenGoal, setDailyTokenGoal] = useState(0);
   const [dailyTokens, setDailyTokens] = useState(0);
+  const [dailyBreakdown, setDailyBreakdown] = useState<any[]>([]);
 
-  // Load app settings and daily token count on mount; subscribe to updates
+  // Load app settings, daily token count, and per-session breakdown on mount; subscribe to updates
   useEffect(() => {
     const api = window.carapace as any;
-    api
-      ?.getAppSettings?.()
-      .then((s: any) => setDailyTokenGoal(s?.dailyTokenGoal ?? 0));
+    api?.getAppSettings?.().then((s: any) => setDailyTokenGoal(s?.dailyTokenGoal ?? 0));
     api?.getDailyTokens?.().then((t: number) => setDailyTokens(t ?? 0));
+    api?.getDailySessionBreakdown?.().then((b: any[]) => setDailyBreakdown(b ?? []));
     const unsubSettings = api?.onSettingsUpdated?.((s: any) =>
       setDailyTokenGoal(s?.dailyTokenGoal ?? 0),
     );
-    const unsubTokens = api?.onDailyTokensUpdated?.((t: number) =>
-      setDailyTokens(t),
-    );
+    const unsubTokens = api?.onDailyTokensUpdated?.((t: number) => setDailyTokens(t));
+    const unsubBreakdown = api?.onDailyBreakdownUpdated?.((b: any[]) => setDailyBreakdown(b ?? []));
     return () => {
       unsubSettings?.();
       unsubTokens?.();
+      unsubBreakdown?.();
     };
   }, []);
 
@@ -305,65 +314,50 @@ export function FloatingOrb() {
     });
   }, [sortedSessions, count, attentionPids, thinkingPids, hoveredPillId]);
 
-  // Gauge segments — mode-aware: tokens/session, cost/session, tokens/model, cost/model
+  // Gauge segments — backed by daily-tokens-store (ground truth for all sessions today).
+  // dailyBreakdown contains every claudeSessionId seen today with tokens, cost, model, color, name.
+  // Cross-reference with live sessions[] to pick up the most current color/title.
   const gaugeSegments = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todaySessions = sessions.filter(
-      (s) =>
-        (s.tokens?.totalTokens ?? 0) > 0 &&
-        s.startTime &&
-        new Date(s.startTime) >= todayStart,
-    );
-    if (todaySessions.length === 0) return [];
+    if (dailyBreakdown.length === 0) return [];
+
+    // Build a lookup from claudeSessionId → live SessionState for richer metadata
+    const liveById = new Map(sessions.map((s) => [s.id, s]));
 
     const isCost = gaugeMode === 1 || gaugeMode === 3;
     let items: Array<{ id: string; color: string; value: number; label: string; metric: string }>;
 
     if (gaugeMode === 0 || gaugeMode === 1) {
-      // Per-session segments — newest first
-      const sorted = [...todaySessions].sort(
-        (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime(),
-      );
-      items = sorted.map((s) => {
-        const value = isCost ? (s.cost ?? 0) : s.tokens.totalTokens;
-        const metric = isCost
-          ? formatCost(s.cost ?? 0)
-          : `${formatTokenCount(s.tokens.totalTokens)} tokens`;
-        const rawName = s.title || (s as any).projectName || 'Claude Code';
-        return {
-          id: s.id,
-          color: s.color || sessionColor(s.id),
-          value,
-          label: rawName,
-          metric,
-        };
-      });
+      // Per-session: use breakdown entries directly
+      items = dailyBreakdown
+        .filter((e) => e.tokens > 0)
+        .map((e) => {
+          const live = liveById.get(e.sessionId);
+          // Color: live session color (most current) → stored color from history → hash fallback
+          const color = (live?.color || e.color || sessionColor(e.sessionId)) as string;
+          // Name priority: preset/stack title (live) → history title → folder name from enrichment
+          const label = (live?.title || e.name || live?.projectName || 'Claude Code') as string;
+          const value = isCost ? (e.cost ?? 0) : e.tokens;
+          const metric = isCost
+            ? formatCost(e.cost ?? 0)
+            : `${formatTokenCount(e.tokens)} tokens`;
+          return { id: e.sessionId, color, value, label, metric };
+        })
+        .sort((a, b) => b.value - a.value);
     } else {
-      // Per-model segments — grouped by model family, sorted by value desc
+      // Per-model: aggregate breakdown by model family
       const groups = new Map<string, { tokens: number; cost: number }>();
-      for (const s of todaySessions) {
-        const family = modelFamily(s.model || '');
+      for (const e of dailyBreakdown) {
+        const family = modelFamily(e.model || '');
         const g = groups.get(family) ?? { tokens: 0, cost: 0 };
-        groups.set(family, {
-          tokens: g.tokens + s.tokens.totalTokens,
-          cost: g.cost + (s.cost ?? 0),
-        });
+        groups.set(family, { tokens: g.tokens + e.tokens, cost: g.cost + (e.cost ?? 0) });
       }
       items = Array.from(groups.entries())
         .map(([family, data]) => {
           const value = gaugeMode === 2 ? data.tokens : data.cost;
-          const metric =
-            gaugeMode === 2
-              ? `${formatTokenCount(data.tokens)} tokens`
-              : formatCost(data.cost);
-          return {
-            id: family,
-            color: MODEL_COLORS[family] ?? '#9CA3AF',
-            value,
-            label: family,
-            metric,
-          };
+          const metric = gaugeMode === 2
+            ? `${formatTokenCount(data.tokens)} tokens`
+            : formatCost(data.cost);
+          return { id: family, color: modelColor(family), value, label: family, metric };
         })
         .sort((a, b) => b.value - a.value);
     }
@@ -376,32 +370,28 @@ export function FloatingOrb() {
     const last = items.length - 1;
     return items
       .map((item, idx) => {
-        const isFirst = idx === 0;
-        const isLast = idx === last;
         const pct = item.value / total;
         const span = pct * GAUGE2_SPAN;
         const segStart = cur;
         const segEnd = cur - span;
         cur = segEnd;
-        const ds = segStart;
-        const de = segEnd;
         const midAngle = (segStart + segEnd) / 2;
         const [midX, midY] = gauge2Point(midAngle);
         const rawLabel = item.label.length > 24 ? item.label.slice(0, 22) + '…' : item.label;
         return {
           id: item.id,
           color: item.color,
-          ds,
-          de,
+          ds: segStart,
+          de: segEnd,
           midX,
           midY,
           name: rawLabel,
           metric: item.metric,
-          valid: ds - de >= 0.5,
+          valid: segStart - segEnd >= 0.5,
         };
       })
       .filter((s) => s.valid);
-  }, [sessions, gaugeMode]);
+  }, [dailyBreakdown, sessions, gaugeMode]);
 
   const handleMainMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
