@@ -6,6 +6,7 @@ export interface StackDialogResult {
   description: string
   systemPath: string
   projects: { name: string; path: string }[]
+  bypass: boolean
 }
 
 export function showStackDialog(existing?: Omit<Stack, 'id'>, mode?: 'new' | 'edit'): Promise<StackDialogResult | null> {
@@ -86,6 +87,7 @@ export function showStackDialog(existing?: Omit<Stack, 'id'>, mode?: 'new' | 'ed
     const initDescription = existing?.description || ''
     const initSystemPath = existing?.systemPath || ''
     const initProjects = JSON.stringify(existing?.projects || [])
+    const initBypass = existing?.bypass ?? false
 
     const html = `<!DOCTYPE html>
 <html>
@@ -155,6 +157,13 @@ export function showStackDialog(existing?: Omit<Stack, 'id'>, mode?: 'new' | 'ed
     font-size: 12px; color: rgba(255,255,255,0.3);
     padding: 8px 0; text-align: center;
   }
+  .bypass-row {
+    -webkit-app-region: no-drag;
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+    font-size: 12px; color: #94a3b8;
+  }
+  .bypass-row input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #7C3AED; }
+  .bypass-row label { cursor: pointer; user-select: none; }
   .buttons {
     -webkit-app-region: no-drag;
     display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px;
@@ -194,6 +203,10 @@ export function showStackDialog(existing?: Omit<Stack, 'id'>, mode?: 'new' | 'ed
     </div>
     <div id="projects-list"></div>
   </div>
+  <div class="bypass-row">
+    <input type="checkbox" id="bypass" ${initBypass ? 'checked' : ''} />
+    <label for="bypass">Skip permissions</label>
+  </div>
   <div class="buttons">
     <button class="cancel" id="cancel-btn">Cancel</button>
     <button class="ok" id="okBtn">${btnLabel}</button>
@@ -203,6 +216,7 @@ export function showStackDialog(existing?: Omit<Stack, 'id'>, mode?: 'new' | 'ed
     const nameEl = document.getElementById('name');
     const descriptionEl = document.getElementById('description');
     const systemPathEl = document.getElementById('systemPath');
+    const bypassEl = document.getElementById('bypass');
     const projectsList = document.getElementById('projects-list');
     const addProjectBtn = document.getElementById('add-project-btn');
     const okBtn = document.getElementById('okBtn');
@@ -281,6 +295,7 @@ export function showStackDialog(existing?: Omit<Stack, 'id'>, mode?: 'new' | 'ed
         description: descriptionEl.value.trim(),
         systemPath: systemPathEl.value,
         projects,
+        bypass: bypassEl.checked,
       });
     }
 

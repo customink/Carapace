@@ -1,6 +1,7 @@
 import { useRef, useCallback, useMemo, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSessions } from "../../hooks/useSessions";
+import { sessionColor } from "@shared/constants/colors";
 
 const DRAG_THRESHOLD = 4;
 
@@ -27,7 +28,7 @@ const PILL_MAX_WIDTH = 300;
 // Fill starts at top and drains downward as tokens are consumed.
 // sweep-flag=1 (CW in SVG) selects the left-side arc.
 const GAUGE_R = 48;
-const GAUGE_SW = 9;
+const GAUGE_SW = 8;
 const GAUGE_START = 225;
 const GAUGE_END = 135;
 const GAUGE_SPAN = GAUGE_START - GAUGE_END; // 90°
@@ -58,6 +59,100 @@ function formatTokenCount(n: number): string {
   return `${n}`;
 }
 
+// Outer session-token gauge — same arc LENGTH as inner, centered on 180° (left of orb).
+// Arc length equality: GAUGE2_R × θ2 = GAUGE_R × θ1  →  θ2 = 90° × (48/R2)
+// +2px extra spacing over previous: inner outer-edge=52, desired outer inner-edge=57 → GAUGE2_R=61
+const GAUGE2_R = 61;
+const GAUGE2_SW = 8; // matches GAUGE_SW
+// Angular span that gives the same arc length as the inner gauge at this radius
+const GAUGE2_SPAN = (GAUGE_SPAN * GAUGE_R) / GAUGE2_R; // ≈ 70.8°
+// Both arcs centered at 180° (directly left of orb)
+const GAUGE2_START = 180 + GAUGE2_SPAN / 2; // ≈ 215.4°
+const GAUGE2_END = 180 - GAUGE2_SPAN / 2;   // ≈ 144.6°
+const SEGMENT_GAP_HALF = 1.0; // degrees trimmed from interior ends between adjacent segments
+const CYCLE_BTN_R = 11; // 22px button — fits 14px icons with 4px margin
+// Cycle button sits just below the bottom endpoint of the outer arc
+const CYCLE_BTN_X = Math.round(CENTER_X + GAUGE2_R * Math.cos((GAUGE2_START * Math.PI) / 180));
+const CYCLE_BTN_Y = Math.round(CENTER_Y - GAUGE2_R * Math.sin((GAUGE2_START * Math.PI) / 180)) + 20;
+// Max tooltip width keeps it fully left of the outer gauge arc (including outline)
+const TOOLTIP_MAX_W = Math.floor(CENTER_X - GAUGE2_R - (GAUGE2_SW + 2) / 2 - 12);
+
+function gauge2Point(angleDeg: number): [number, number] {
+  const rad = (angleDeg * Math.PI) / 180;
+  return [CENTER_X + GAUGE2_R * Math.cos(rad), CENTER_Y - GAUGE2_R * Math.sin(rad)];
+}
+
+function gauge2ArcPath(startDeg: number, endDeg: number): string {
+  const [x1, y1] = gauge2Point(startDeg);
+  const [x2, y2] = gauge2Point(endDeg);
+  const span = Math.abs(startDeg - endDeg);
+  if (span < 0.5) return "";
+  return `M ${x1} ${y1} A ${GAUGE2_R} ${GAUGE2_R} 0 ${span > 180 ? 1 : 0} 1 ${x2} ${y2}`;
+}
+
+// Gauge mode cycling: 0=tokens/session  1=cost/session  2=tokens/model  3=cost/model
+const GAUGE_MODE_LABELS = ['Tokens / Session', 'Cost / Session', 'Tokens / Model', 'Cost / Model'];
+
+// Fused icon concepts:
+//   Session modes (0,1): person figure — circle head + symbol body
+//   Model  modes (2,3): CPU chip outline — rect + side pins + symbol inside
+const _is: React.CSSProperties = { display: 'block' };
+const GAUGE_MODE_ICONS: React.ReactNode[] = [
+  // 0: Tokens/Session — person whose body IS a lightning bolt
+  <svg viewBox="0 0 14 14" width="14" height="14" style={_is}>
+    <circle cx="7" cy="2.5" r="2" fill="rgba(255,255,255,0.92)"/>
+    <path d="M7.5 4.5L5 9H7L4.5 13L9.5 8.5H7.5Z" fill="rgba(255,255,255,0.92)"/>
+  </svg>,
+  // 1: Cost/Session — person whose body IS a dollar sign
+  <svg viewBox="0 0 14 14" width="14" height="14" style={_is}>
+    <circle cx="7" cy="2" r="2" fill="rgba(255,255,255,0.92)"/>
+    <text x="7" y="12" textAnchor="middle" fontSize="10" fontWeight="700"
+      fill="rgba(255,255,255,0.92)" fontFamily="-apple-system,sans-serif">$</text>
+  </svg>,
+  // 2: Tokens/Model — CPU chip with lightning bolt inside
+  <svg viewBox="0 0 14 14" width="14" height="14" style={_is}>
+    <rect x="2.5" y="2.5" width="9" height="9" rx="1.5" fill="none"
+      stroke="rgba(255,255,255,0.80)" strokeWidth="1.2"/>
+    <line x1="0.5" y1="5.5" x2="2.5" y2="5.5" stroke="rgba(255,255,255,0.65)" strokeWidth="1"/>
+    <line x1="0.5" y1="9"   x2="2.5" y2="9"   stroke="rgba(255,255,255,0.65)" strokeWidth="1"/>
+    <line x1="11.5" y1="5.5" x2="13.5" y2="5.5" stroke="rgba(255,255,255,0.65)" strokeWidth="1"/>
+    <line x1="11.5" y1="9"   x2="13.5" y2="9"   stroke="rgba(255,255,255,0.65)" strokeWidth="1"/>
+    <path d="M7.5 4L5 7.5H7L5 10.5L9.5 7H7.5Z" fill="rgba(255,255,255,0.92)"/>
+  </svg>,
+  // 3: Cost/Model — CPU chip with dollar sign inside
+  <svg viewBox="0 0 14 14" width="14" height="14" style={_is}>
+    <rect x="2.5" y="2.5" width="9" height="9" rx="1.5" fill="none"
+      stroke="rgba(255,255,255,0.80)" strokeWidth="1.2"/>
+    <line x1="0.5" y1="5.5" x2="2.5" y2="5.5" stroke="rgba(255,255,255,0.65)" strokeWidth="1"/>
+    <line x1="0.5" y1="9"   x2="2.5" y2="9"   stroke="rgba(255,255,255,0.65)" strokeWidth="1"/>
+    <line x1="11.5" y1="5.5" x2="13.5" y2="5.5" stroke="rgba(255,255,255,0.65)" strokeWidth="1"/>
+    <line x1="11.5" y1="9"   x2="13.5" y2="9"   stroke="rgba(255,255,255,0.65)" strokeWidth="1"/>
+    <text x="7" y="9.5" textAnchor="middle" fontSize="7" fontWeight="700"
+      fill="rgba(255,255,255,0.92)" fontFamily="-apple-system,sans-serif">$</text>
+  </svg>,
+];
+
+const MODEL_COLORS: Record<string, string> = {
+  Opus: '#A78BFA',
+  Sonnet: '#60A5FA',
+  Haiku: '#34D399',
+  Other: '#9CA3AF',
+};
+
+function modelFamily(model: string): string {
+  const m = (model || '').toLowerCase();
+  if (m.includes('opus')) return 'Opus';
+  if (m.includes('sonnet')) return 'Sonnet';
+  if (m.includes('haiku')) return 'Haiku';
+  return 'Other';
+}
+
+function formatCost(n: number): string {
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  if (n >= 0.001) return `$${n.toFixed(3)}`;
+  return `$${n.toFixed(4)}`;
+}
+
 export function FloatingOrb() {
   const { sessions, activeSessions } = useSessions();
   const isDragging = useRef(false);
@@ -68,6 +163,9 @@ export function FloatingOrb() {
   const [hoveredPillId, setHoveredPillId] = useState<string | null>(null);
   const [gaugeHovered, setGaugeHovered] = useState(false);
   const [orbHovered, setOrbHovered] = useState(false);
+  const [hoveredSegmentId, setHoveredSegmentId] = useState<string | null>(null);
+  const [gaugeMode, setGaugeMode] = useState(0); // 0–3: tokens/session, cost/session, tokens/model, cost/model
+  const [cycleBtnHovered, setCycleBtnHovered] = useState(false);
   const thinkingInitialized = useRef(false);
   const [dailyTokenGoal, setDailyTokenGoal] = useState(0);
   const [dailyTokens, setDailyTokens] = useState(0);
@@ -207,6 +305,104 @@ export function FloatingOrb() {
     });
   }, [sortedSessions, count, attentionPids, thinkingPids, hoveredPillId]);
 
+  // Gauge segments — mode-aware: tokens/session, cost/session, tokens/model, cost/model
+  const gaugeSegments = useMemo(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todaySessions = sessions.filter(
+      (s) =>
+        (s.tokens?.totalTokens ?? 0) > 0 &&
+        s.startTime &&
+        new Date(s.startTime) >= todayStart,
+    );
+    if (todaySessions.length === 0) return [];
+
+    const isCost = gaugeMode === 1 || gaugeMode === 3;
+    let items: Array<{ id: string; color: string; value: number; label: string; metric: string }>;
+
+    if (gaugeMode === 0 || gaugeMode === 1) {
+      // Per-session segments — newest first
+      const sorted = [...todaySessions].sort(
+        (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime(),
+      );
+      items = sorted.map((s) => {
+        const value = isCost ? (s.cost ?? 0) : s.tokens.totalTokens;
+        const metric = isCost
+          ? formatCost(s.cost ?? 0)
+          : `${formatTokenCount(s.tokens.totalTokens)} tokens`;
+        const rawName = s.title || (s as any).projectName || 'Claude Code';
+        return {
+          id: s.id,
+          color: s.color || sessionColor(s.id),
+          value,
+          label: rawName,
+          metric,
+        };
+      });
+    } else {
+      // Per-model segments — grouped by model family, sorted by value desc
+      const groups = new Map<string, { tokens: number; cost: number }>();
+      for (const s of todaySessions) {
+        const family = modelFamily(s.model || '');
+        const g = groups.get(family) ?? { tokens: 0, cost: 0 };
+        groups.set(family, {
+          tokens: g.tokens + s.tokens.totalTokens,
+          cost: g.cost + (s.cost ?? 0),
+        });
+      }
+      items = Array.from(groups.entries())
+        .map(([family, data]) => {
+          const value = gaugeMode === 2 ? data.tokens : data.cost;
+          const metric =
+            gaugeMode === 2
+              ? `${formatTokenCount(data.tokens)} tokens`
+              : formatCost(data.cost);
+          return {
+            id: family,
+            color: MODEL_COLORS[family] ?? '#9CA3AF',
+            value,
+            label: family,
+            metric,
+          };
+        })
+        .sort((a, b) => b.value - a.value);
+    }
+
+    items = items.filter((i) => i.value > 0);
+    const total = items.reduce((sum, i) => sum + i.value, 0);
+    if (total === 0) return [];
+
+    let cur = GAUGE2_START;
+    const last = items.length - 1;
+    return items
+      .map((item, idx) => {
+        const isFirst = idx === 0;
+        const isLast = idx === last;
+        const pct = item.value / total;
+        const span = pct * GAUGE2_SPAN;
+        const segStart = cur;
+        const segEnd = cur - span;
+        cur = segEnd;
+        const ds = segStart;
+        const de = segEnd;
+        const midAngle = (segStart + segEnd) / 2;
+        const [midX, midY] = gauge2Point(midAngle);
+        const rawLabel = item.label.length > 24 ? item.label.slice(0, 22) + '…' : item.label;
+        return {
+          id: item.id,
+          color: item.color,
+          ds,
+          de,
+          midX,
+          midY,
+          name: rawLabel,
+          metric: item.metric,
+          valid: ds - de >= 0.5,
+        };
+      })
+      .filter((s) => s.valid);
+  }, [sessions, gaugeMode]);
+
   const handleMainMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
     isDragging.current = true;
@@ -342,7 +538,7 @@ export function FloatingOrb() {
         });
       }
 
-      // Check gauge arc (left side of orb)
+      // Check budget gauge arc (left side of orb)
       if (!over && dailyTokenGoal > 0) {
         const dx = mx - CENTER_X;
         const dy = my - CENTER_Y;
@@ -351,6 +547,24 @@ export function FloatingOrb() {
           dist >= GAUGE_R - GAUGE_SW / 2 - PAD &&
           dist <= GAUGE_R + GAUGE_SW / 2 + PAD;
         if (inBand && dx < 10) over = true;
+      }
+
+      // Check outer session-token gauge arc
+      if (!over) {
+        const dx = mx - CENTER_X;
+        const dy = my - CENTER_Y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const inBand2 =
+          dist >= GAUGE2_R - GAUGE2_SW / 2 - PAD &&
+          dist <= GAUGE2_R + GAUGE2_SW / 2 + PAD;
+        if (inBand2 && dx < 10) over = true;
+      }
+
+      // Check cycle button
+      if (!over) {
+        const dx = mx - CYCLE_BTN_X;
+        const dy = my - CYCLE_BTN_Y;
+        if (dx * dx + dy * dy <= (CYCLE_BTN_R + PAD) * (CYCLE_BTN_R + PAD)) over = true;
       }
 
       const shouldIgnore = !over;
@@ -529,11 +743,20 @@ export function FloatingOrb() {
                 onMouseLeave={() => setGaugeHovered(false)}
               />
 
+              {/* Track outline — visible on light backgrounds */}
+              <path
+                d={gaugeArcPath(GAUGE_START, GAUGE_END)}
+                fill="none"
+                stroke="rgba(140,155,180,0.22)"
+                strokeWidth={GAUGE_SW + 2}
+                strokeLinecap="round"
+                style={{ pointerEvents: "none" }}
+              />
               {/* Track */}
               <path
                 d={gaugeArcPath(GAUGE_START, GAUGE_END)}
                 fill="none"
-                stroke="rgba(255,255,255,0.10)"
+                stroke="rgba(255,255,255,0.22)"
                 strokeWidth={GAUGE_SW}
                 strokeLinecap="round"
                 style={{
@@ -563,6 +786,204 @@ export function FloatingOrb() {
             </svg>
           );
         })()}
+
+      {/* Session-token gauge — outer arc, colored segments per session by totalTokens */}
+      <svg
+        className="absolute"
+        style={{ left: 0, top: 0, width: "100%", height: "100%", overflow: "visible" }}
+      >
+        {/* Track outline — visible on light backgrounds */}
+        <path
+          d={gauge2ArcPath(GAUGE2_START, GAUGE2_END)}
+          fill="none"
+          stroke="rgba(140,155,180,0.22)"
+          strokeWidth={GAUGE2_SW + 2}
+          strokeLinecap="round"
+          style={{ pointerEvents: "none" }}
+        />
+        {/* Track */}
+        <path
+          d={gauge2ArcPath(GAUGE2_START, GAUGE2_END)}
+          fill="none"
+          stroke="rgba(255,255,255,0.20)"
+          strokeWidth={GAUGE2_SW}
+          strokeLinecap="round"
+          style={{ pointerEvents: "none" }}
+        />
+
+        {/* Gauge segments */}
+        {gaugeSegments.map((seg) => (
+          <g key={seg.id}>
+            {/* Invisible wide hit target */}
+            <path
+              d={gauge2ArcPath(seg.ds, seg.de)}
+              fill="none"
+              stroke="transparent"
+              strokeWidth={GAUGE2_SW + 14}
+              strokeLinecap="butt"
+              style={{ cursor: "default" }}
+              onMouseEnter={() => setHoveredSegmentId(seg.id)}
+              onMouseLeave={() => setHoveredSegmentId(null)}
+            />
+            {/* Colored segment */}
+            <path
+              d={gauge2ArcPath(seg.ds, seg.de)}
+              fill="none"
+              stroke={seg.color}
+              strokeWidth={GAUGE2_SW}
+              strokeLinecap="butt"
+              style={{
+                pointerEvents: "none",
+                filter:
+                  hoveredSegmentId === seg.id
+                    ? `drop-shadow(0 0 5px ${seg.color}bb) drop-shadow(0 0 10px ${seg.color}77)`
+                    : `drop-shadow(0 0 3px ${seg.color}55)`,
+                opacity: hoveredSegmentId && hoveredSegmentId !== seg.id ? 0.4 : 1,
+                transition: "filter 0.15s ease, opacity 0.15s ease",
+              }}
+            />
+          </g>
+        ))}
+
+        {/* Rounded caps at the two outer arc endpoints — painted over butt segment ends */}
+        {gaugeSegments.length > 0 && (() => {
+          const first = gaugeSegments[0];
+          const last = gaugeSegments[gaugeSegments.length - 1];
+          const [sx, sy] = gauge2Point(GAUGE2_START);
+          const [ex, ey] = gauge2Point(GAUGE2_END);
+          return (
+            <>
+              <circle cx={sx} cy={sy} r={GAUGE2_SW / 2} fill={first.color}
+                style={{ pointerEvents: "none",
+                  filter: hoveredSegmentId === first.id
+                    ? `drop-shadow(0 0 5px ${first.color}bb)`
+                    : `drop-shadow(0 0 3px ${first.color}55)`,
+                  opacity: hoveredSegmentId && hoveredSegmentId !== first.id ? 0.4 : 1,
+                  transition: "filter 0.15s ease, opacity 0.15s ease" }} />
+              <circle cx={ex} cy={ey} r={GAUGE2_SW / 2} fill={last.color}
+                style={{ pointerEvents: "none",
+                  filter: hoveredSegmentId === last.id
+                    ? `drop-shadow(0 0 5px ${last.color}bb)`
+                    : `drop-shadow(0 0 3px ${last.color}55)`,
+                  opacity: hoveredSegmentId && hoveredSegmentId !== last.id ? 0.4 : 1,
+                  transition: "filter 0.15s ease, opacity 0.15s ease" }} />
+            </>
+          );
+        })()}
+      </svg>
+
+      {/* Tooltip for hovered gauge segment */}
+      <AnimatePresence>
+        {hoveredSegmentId &&
+          (() => {
+            const seg = gaugeSegments.find((s) => s.id === hoveredSegmentId);
+            if (!seg) return null;
+            // Anchor to the left wall — never let it touch the gauge arcs
+            const tipTop = Math.max(4, Math.min(seg.midY - 22, 280));
+            return (
+              <motion.div
+                key="seg-tooltip"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ duration: 0.1 }}
+                style={{
+                  position: "absolute",
+                  left: 4,
+                  top: tipTop,
+                  background: "rgba(0,0,0,0.82)",
+                  backdropFilter: "blur(8px)",
+                  borderRadius: 6,
+                  padding: "4px 8px",
+                  pointerEvents: "none",
+                  border: `1px solid ${seg.color}50`,
+                  minWidth: 72,
+                  maxWidth: TOOLTIP_MAX_W,
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "#fff",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {seg.name}
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 500, color: "#fff", opacity: 0.75, whiteSpace: "nowrap" }}>
+                  {seg.metric}
+                </div>
+              </motion.div>
+            );
+          })()}
+      </AnimatePresence>
+
+      {/* Cycle button — shows current mode icon, cycles on click */}
+      <motion.div
+        style={{
+          position: "absolute",
+          left: CYCLE_BTN_X - CYCLE_BTN_R,
+          top: CYCLE_BTN_Y - CYCLE_BTN_R,
+          width: CYCLE_BTN_R * 2,
+          height: CYCLE_BTN_R * 2,
+          borderRadius: "50%",
+          background: "rgba(30,30,50,0.75)",
+          border: "1.5px solid rgba(255,255,255,0.40)",
+          boxShadow: "0 0 8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12)",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          backdropFilter: "blur(4px)",
+          overflow: "hidden",
+        }}
+        whileHover={{
+          background: "rgba(80,80,120,0.85)",
+          borderColor: "rgba(255,255,255,0.70)",
+          boxShadow: "0 0 14px rgba(124,58,237,0.45), 0 0 6px rgba(255,255,255,0.2)",
+        }}
+        whileTap={{ scale: 0.88 }}
+        transition={{ duration: 0.12 }}
+        onClick={() => setGaugeMode((m) => ((m + 1) % 4) as 0 | 1 | 2 | 3)}
+        onMouseEnter={() => setCycleBtnHovered(true)}
+        onMouseLeave={() => setCycleBtnHovered(false)}
+      >
+        {GAUGE_MODE_ICONS[gaugeMode]}
+      </motion.div>
+
+      {/* Mode tooltip — floats below the cycle button on hover */}
+      <AnimatePresence>
+        {cycleBtnHovered && (
+          <motion.div
+            key="mode-tooltip"
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.12 }}
+            style={{
+              position: "absolute",
+              left: CYCLE_BTN_X - 50,
+              top: CYCLE_BTN_Y + CYCLE_BTN_R + 5,
+              background: "rgba(0,0,0,0.82)",
+              backdropFilter: "blur(8px)",
+              borderRadius: 6,
+              padding: "4px 8px",
+              pointerEvents: "none",
+              whiteSpace: "nowrap",
+              fontSize: 11,
+              fontWeight: 500,
+              color: "rgba(255,255,255,0.9)",
+              border: "1px solid rgba(255,255,255,0.15)",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+            }}
+          >
+            {GAUGE_MODE_LABELS[gaugeMode]}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Pulse ring behind main orb */}
       {count > 0 && (
@@ -631,7 +1052,7 @@ export function FloatingOrb() {
         </div>
       </motion.div>
 
-      {/* Token counter — renders after orb so it paints on top; anchored left of orb, slides in from left */}
+      {/* Token counter — below the orb, slides up on hover */}
       <AnimatePresence>
         {(orbHovered || gaugeHovered) &&
           dailyTokenGoal > 0 &&
@@ -642,25 +1063,26 @@ export function FloatingOrb() {
             return (
               <motion.div
                 key="token-counter"
-                initial={{ x: 50, opacity: 0 }}
-                animate={{ x: 0, opacity: 1 }}
-                exit={{ x: 50, opacity: 0 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
+                initial={{ y: -6, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -6, opacity: 0 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
                 style={{
                   position: "absolute",
-                  right: 440,
-                  top: CENTER_Y - 22,
+                  left: CENTER_X - 38,
+                  top: CENTER_Y + MAIN_ORB_SIZE / 2 + 8,
                   pointerEvents: "none",
                   background: "rgba(0,0,0,0.78)",
                   backdropFilter: "blur(8px)",
                   borderRadius: 8,
-                  padding: "5px 10px",
+                  padding: "4px 10px",
                   lineHeight: 1.3,
+                  textAlign: "center",
                 }}
               >
                 <div
                   style={{
-                    fontSize: 17,
+                    fontSize: 15,
                     fontWeight: 800,
                     color,
                     whiteSpace: "nowrap",
@@ -670,7 +1092,7 @@ export function FloatingOrb() {
                 </div>
                 <div
                   style={{
-                    fontSize: 11,
+                    fontSize: 10,
                     fontWeight: 500,
                     color: "rgba(255,255,255,0.45)",
                     whiteSpace: "nowrap",

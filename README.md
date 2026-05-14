@@ -77,6 +77,7 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 - Share a stack by exporting it as a JSON file
 - Storage format is one YAML file per stack in `~/.claude/stacks/`, compatible with the `/stacks` Claude Code plugin
 - Bind a preset to a stack so launching the preset always uses the stack's current working directory
+- Per-stack **Skip Permissions** flag — mark a stack to always launch with `--dangerously-skip-permissions`
 
 ### Daily Token Gauge
 - Curved arc gauge on the left side of the orb tracking today's total token consumption across all sessions
@@ -85,6 +86,18 @@ Visual menu-bar app for managing Claude Code sessions. Built with Electron + Rea
 - Updates in real-time as JSONL transcripts change — no manual refresh needed
 - Hover the gauge for a whitish-gray glow on the track and a color-matched glow on the fill
 - Hover tooltip shows: tokens used / goal / percentage consumed
+
+### Session Usage Gauge
+- Second concentric arc gauge (outer ring) visualizing today's usage breakdown across sessions and models
+- Colored segments match each session's orb color — instantly see which sessions consumed the most tokens
+- Flat segment joints with rounded outer tips for a clean, polished arc appearance
+- Four display modes cycled by the mode button below the gauge:
+  - **Tokens / Session** — token consumption per individual session (person + bolt icon)
+  - **Cost / Session** — dollar cost per session (person + $ icon)
+  - **Tokens / Model** — token consumption grouped by model family: Opus, Sonnet, Haiku (chip + bolt icon)
+  - **Cost / Model** — cost grouped by model family (chip + $ icon)
+- Hover a segment to highlight it and show a tooltip with the session name and metric value
+- Mode button shows a fused icon representing the current mode; hovering shows a tooltip label below
 
 ### Sidebar Tools
 - **Notes** — Floating notepad per session

@@ -42,14 +42,15 @@ export function toggleStacksWindow(parentWin: BrowserWindow, color: string): boo
     const stack = stacks.find(s => s.id === stackId)
     if (!stack) return
 
+    const bypass = stack.bypass ?? false
     if (projectPath) {
       // Launch in a specific project — no extra dirs needed
       const title = stack.projects.find(p => p.path === projectPath)?.name || stack.name
-      spawnClaudeSession(false, title, projectPath)
+      spawnClaudeSession(bypass, title, projectPath)
     } else {
       // Launch the full stack: start in systemPath, add all project paths as context
       const addDirs = stack.projects.map(p => p.path).filter(Boolean)
-      spawnClaudeSession(false, stack.name, stack.systemPath, undefined, undefined, undefined, undefined, undefined, undefined, undefined, addDirs)
+      spawnClaudeSession(bypass, stack.name, stack.systemPath, undefined, undefined, undefined, undefined, undefined, undefined, undefined, addDirs)
     }
   })
 

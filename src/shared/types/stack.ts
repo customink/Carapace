@@ -9,4 +9,5 @@ export interface Stack {
   description: string
   systemPath: string    // cwd for the stack (field `system` in import format)
   projects: StackProject[]
+  bypass?: boolean      // skip permissions flag
 }

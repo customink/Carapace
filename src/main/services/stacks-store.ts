@@ -26,6 +26,7 @@ function toYaml(stack: Stack): string {
     description: stack.description,
     system: stack.systemPath,
   }
+  if (stack.bypass) doc.bypass = true
   if (stack.projects.length > 0) {
     doc.projects = stack.projects.map(p => ({ name: p.name, path: p.path }))
   }
@@ -43,6 +44,7 @@ function fromYaml(content: string, filename: string): Stack {
     projects: Array.isArray(raw?.projects)
       ? raw.projects.map((p: any) => ({ name: String(p.name || ''), path: String(p.path || '') }))
       : [],
+    bypass: raw?.bypass === true,
   }
 }
 
@@ -128,6 +130,7 @@ export function importStacks(newStacks: Record<string, any>[]): Stack[] {
       projects: Array.isArray(raw.projects)
         ? raw.projects.map((p: any) => ({ name: String(p.name || ''), path: String(p.path || '') }))
         : (existing.get(name)?.projects ?? []),
+      bypass: raw.bypass === true,
     }
     writeFileSync(join(STACKS_DIR, stackFilename(name)), toYaml(merged))
   }
