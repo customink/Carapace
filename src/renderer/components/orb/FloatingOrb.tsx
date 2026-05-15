@@ -820,41 +820,46 @@ export function FloatingOrb() {
           style={{ pointerEvents: "none" }}
         />
 
-        {/* Gauge segments */}
-        {gaugeSegments.map((seg) => (
-          <g key={seg.id}>
-            {/* Invisible wide hit target */}
-            <path
-              d={gauge2ArcPath(seg.ds, seg.de)}
-              fill="none"
-              stroke="transparent"
-              strokeWidth={GAUGE2_SW + 14}
-              strokeLinecap="butt"
-              style={{ cursor: "default" }}
-              onMouseEnter={() => setHoveredSegmentId(seg.id)}
-              onMouseLeave={() => setHoveredSegmentId(null)}
-            />
-            {/* Colored segment */}
-            <path
-              d={gauge2ArcPath(seg.ds, seg.de)}
-              fill="none"
-              stroke={seg.color}
-              strokeWidth={GAUGE2_SW}
-              strokeLinecap="butt"
-              style={{
-                pointerEvents: "none",
-                filter:
-                  hoveredSegmentId === seg.id
-                    ? `drop-shadow(0 0 5px ${seg.color}bb) drop-shadow(0 0 10px ${seg.color}77)`
-                    : `drop-shadow(0 0 3px ${seg.color}55)`,
-                opacity: hoveredSegmentId && hoveredSegmentId !== seg.id ? 0.4 : 1,
-                transition: "filter 0.15s ease, opacity 0.15s ease",
-              }}
-            />
-          </g>
-        ))}
+        {/* Gauge segments — motion.path animates arc growth smoothly between data updates */}
+        {gaugeSegments.map((seg) => {
+          const arcPath = gauge2ArcPath(seg.ds, seg.de);
+          return (
+            <g key={seg.id}>
+              {/* Invisible wide hit target — not animated, just tracks current position */}
+              <path
+                d={arcPath}
+                fill="none"
+                stroke="transparent"
+                strokeWidth={GAUGE2_SW + 14}
+                strokeLinecap="butt"
+                style={{ cursor: "default" }}
+                onMouseEnter={() => setHoveredSegmentId(seg.id)}
+                onMouseLeave={() => setHoveredSegmentId(null)}
+              />
+              {/* Colored segment — animates arc path changes */}
+              <motion.path
+                initial={false}
+                animate={{ d: arcPath }}
+                transition={{ duration: 0.6, ease: "easeInOut" }}
+                fill="none"
+                stroke={seg.color}
+                strokeWidth={GAUGE2_SW}
+                strokeLinecap="butt"
+                style={{
+                  pointerEvents: "none",
+                  filter:
+                    hoveredSegmentId === seg.id
+                      ? `drop-shadow(0 0 5px ${seg.color}bb) drop-shadow(0 0 10px ${seg.color}77)`
+                      : `drop-shadow(0 0 3px ${seg.color}55)`,
+                  opacity: hoveredSegmentId && hoveredSegmentId !== seg.id ? 0.4 : 1,
+                  transition: "filter 0.15s ease, opacity 0.15s ease",
+                }}
+              />
+            </g>
+          );
+        })}
 
-        {/* Rounded caps at the two outer arc endpoints — painted over butt segment ends */}
+        {/* Rounded caps at the two outer arc endpoints — animate color transitions */}
         {gaugeSegments.length > 0 && (() => {
           const first = gaugeSegments[0];
           const last = gaugeSegments[gaugeSegments.length - 1];
@@ -862,14 +867,24 @@ export function FloatingOrb() {
           const [ex, ey] = gauge2Point(GAUGE2_END);
           return (
             <>
-              <circle cx={sx} cy={sy} r={GAUGE2_SW / 2} fill={first.color}
+              <motion.circle
+                key={`cap-start-${first.id}`}
+                cx={sx} cy={sy} r={GAUGE2_SW / 2}
+                initial={false}
+                animate={{ fill: first.color }}
+                transition={{ duration: 0.6, ease: "easeInOut" }}
                 style={{ pointerEvents: "none",
                   filter: hoveredSegmentId === first.id
                     ? `drop-shadow(0 0 5px ${first.color}bb)`
                     : `drop-shadow(0 0 3px ${first.color}55)`,
                   opacity: hoveredSegmentId && hoveredSegmentId !== first.id ? 0.4 : 1,
                   transition: "filter 0.15s ease, opacity 0.15s ease" }} />
-              <circle cx={ex} cy={ey} r={GAUGE2_SW / 2} fill={last.color}
+              <motion.circle
+                key={`cap-end-${last.id}`}
+                cx={ex} cy={ey} r={GAUGE2_SW / 2}
+                initial={false}
+                animate={{ fill: last.color }}
+                transition={{ duration: 0.6, ease: "easeInOut" }}
                 style={{ pointerEvents: "none",
                   filter: hoveredSegmentId === last.id
                     ? `drop-shadow(0 0 5px ${last.color}bb)`
