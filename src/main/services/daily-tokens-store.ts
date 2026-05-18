@@ -62,34 +62,30 @@ export function loadDailyTokens(): void {
       store = { date: today(), sessions: {} }
       return
     }
-    // Migrate v1: { sessionMaxes: Record<string,number> } → current format
+    // Migrate v1: { sessionMaxes: Record<string,number> } — discard; baselines unknown
     if (parsed.sessionMaxes && !parsed.sessions) {
-      const sessions: Record<string, SessionDayData> = {}
-      for (const [id, tokens] of Object.entries(parsed.sessionMaxes as Record<string, number>)) {
-        sessions[id] = { tokens: tokens as number, baseline: 0, offset: 0, peak: tokens as number, cost: 0, model: '' }
-      }
-      store = { date: today(), sessions }
+      store = { date: today(), sessions: {} }
       return
     }
-    // Migrate v2: sessions without baseline/offset/peak fields
-    const sessions: Record<string, SessionDayData> = {}
-    for (const [id, d] of Object.entries((parsed.sessions ?? {}) as Record<string, any>)) {
-      sessions[id] = {
-        tokens: d.tokens ?? 0,
-        baseline: d.baseline ?? 0,
-        offset: d.offset ?? 0,
-        peak: d.peak ?? d.tokens ?? 0,
-        cost: d.cost ?? 0,
-        model: d.model ?? '',
-        color: d.color,
-        name: d.name,
-        projectPath: d.projectPath,
-      }
+    // Detect v2 format (no baseline field) — discard so fresh baselines are established.
+    // Old data without baselines would double-count tokens from previous days.
+    const rawSessions = parsed.sessions ?? {}
+    const firstEntry = Object.values(rawSessions)[0] as any
+    if (firstEntry && typeof firstEntry.baseline === 'undefined') {
+      store = { date: today(), sessions: {} }
+      return
     }
-    store = { date: today(), sessions }
+    // Current format — load as-is
+    store = { date: today(), sessions: rawSessions }
   } catch {
     store = { date: today(), sessions: {} }
   }
+}
+
+/** Wipe today's accumulated data so every session re-establishes its baseline on next read. */
+export function resetDailyTokens(): void {
+  store = { date: today(), sessions: {} }
+  persist()
 }
 
 /** Record a token/cost observation for a session. Returns true if today's total changed. */

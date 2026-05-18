@@ -2,7 +2,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { app, ipcMain, Menu, BrowserWindow, screen, dialog, shell, net } from 'electron'
-import { registerIpcHandlers, startSessionMonitor, stopSessionMonitor } from './ipc/handlers'
+import { registerIpcHandlers, startSessionMonitor, stopSessionMonitor, resetAndBroadcastDailyTokens } from './ipc/handlers'
 import { startHookServer, stopHookServer } from './services/hook-server'
 import { installHooks, uninstallHooks } from './services/hook-installer'
 import { IPC_CHANNELS } from './ipc/channels'
@@ -935,6 +935,10 @@ app.whenReady().then(() => {
           ],
         }
       })(),
+      {
+        label: 'Reset Token Counter',
+        click: () => resetAndBroadcastDailyTokens()
+      },
       {
         label: 'Settings...',
         click: async () => {

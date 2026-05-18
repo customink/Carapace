@@ -13,7 +13,7 @@ import { PROJECTS_DIR } from '@shared/constants/paths'
 import { formatModelName } from '@shared/utils/format'
 import * as ptyManager from '../services/pty-manager'
 import { updateHistoryEntry } from '../services/session-history'
-import { loadDailyTokens, recordSessionData, getDailyTokens, getDailySessionBreakdown } from '../services/daily-tokens-store'
+import { loadDailyTokens, recordSessionData, getDailyTokens, getDailySessionBreakdown, resetDailyTokens } from '../services/daily-tokens-store'
 import type { SessionUpdate } from '../services/session-monitor'
 import type { SessionState } from '@shared/types/session'
 
@@ -100,6 +100,17 @@ function enrichedBreakdown() {
 }
 
 let monitor: SessionMonitor | null = null
+
+/** Reset daily token store and immediately push zeroed state to all renderer windows. */
+export function resetAndBroadcastDailyTokens(): void {
+  resetDailyTokens()
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('daily-tokens:updated', 0)
+      win.webContents.send('daily-tokens:breakdown-updated', [])
+    }
+  }
+}
 
 export function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.SESSIONS_LIST, async () => {
