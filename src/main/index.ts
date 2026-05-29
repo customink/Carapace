@@ -701,13 +701,13 @@ app.whenReady().then(() => {
                       label: `Launch ${stack.name}`,
                       click: () => {
                         const addDirs = projects.map(p => p.path).filter(Boolean)
-                        spawnClaudeSession(false, stack.name, stack.systemPath, undefined, undefined, undefined, undefined, undefined, undefined, undefined, addDirs)
+                        spawnClaudeSession(stack.bypass ?? false, stack.name, stack.systemPath, undefined, undefined, undefined, undefined, undefined, undefined, undefined, addDirs)
                       },
                     },
                     { type: 'separator' as const },
                     ...projects.map(proj => ({
                       label: proj.name,
-                      click: () => spawnClaudeSession(false, proj.name, proj.path),
+                      click: () => spawnClaudeSession(stack.bypass ?? false, proj.name, proj.path),
                     })),
                     { type: 'separator' as const },
                     {
