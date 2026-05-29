@@ -1028,7 +1028,7 @@ app.whenReady().then(() => {
   ipcMain.handle(IPC_CHANNELS.STACK_LAUNCH, async (_e, stackId: string) => {
     const stack = loadStacks().find(s => s.id === stackId)
     if (stack) {
-      spawnClaudeSession(false, stack.name, stack.systemPath)
+      spawnClaudeSession(stack.bypass ?? false, stack.name, stack.systemPath)
     }
   })
 
