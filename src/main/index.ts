@@ -22,6 +22,7 @@ import { showStackDialog } from './windows/stack-dialog'
 import { showStackImportDialog } from './windows/stack-import-dialog'
 import { loadAppSettings, saveAppSettings } from './services/app-settings-store'
 import { showSettingsWindow } from './windows/settings'
+import { showFuelGaugeLimitsWindow } from './windows/fuel-gauge-limits'
 import { showSlackComposeDialog } from './windows/slack-compose'
 import { getLastAssistantResponse } from './services/jsonl-parser'
 import { exportContext, importContext, type CarapaceContextPackage } from './services/context-share'
@@ -954,6 +955,7 @@ app.whenReady().then(() => {
               orbCmdClickPreset: result.orbCmdClickPreset,
               orbCtrlClickPreset: result.orbCtrlClickPreset,
               dailyTokenGoal: result.dailyTokenGoal ?? 0,
+              dailyCostGoal: result.dailyCostGoal ?? 0,
             })
             getOrbWindow()?.webContents.send('app:settings-updated', updated)
             if (result.clearHistory) {
@@ -1033,6 +1035,14 @@ app.whenReady().then(() => {
   })
 
   ipcMain.handle('app:get-settings', () => loadAppSettings())
+
+  ipcMain.on('fuel-gauge:context-menu', async () => {
+    const result = await showFuelGaugeLimitsWindow()
+    if (result) {
+      const updated = saveAppSettings({ dailyTokenGoal: result.tokenGoal, dailyCostGoal: result.costGoal })
+      getOrbWindow()?.webContents.send('app:settings-updated', updated)
+    }
+  })
 
   // ─── Snippets ───
   ipcMain.handle(IPC_CHANNELS.SNIPPETS_LIST, () => loadSnippets())

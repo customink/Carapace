@@ -47,6 +47,7 @@ const api = {
   },
 
   getAppSettings: () => ipcRenderer.invoke('app:get-settings'),
+  fuelGaugeContextMenu: () => ipcRenderer.send('fuel-gauge:context-menu'),
 
   onSettingsUpdated: (callback: (settings: unknown) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, settings: unknown) => callback(settings)

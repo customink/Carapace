@@ -151,18 +151,24 @@ export function FloatingOrb() {
   const [cycleBtnHovered, setCycleBtnHovered] = useState(false);
   const thinkingInitialized = useRef(false);
   const [dailyTokenGoal, setDailyTokenGoal] = useState(0);
+  const [dailyCostGoal, setDailyCostGoal] = useState(0);
+  const [fuelGaugeMode, setFuelGaugeMode] = useState<0 | 1>(0); // 0=tokens, 1=cost
   const [dailyTokens, setDailyTokens] = useState(0);
   const [dailyBreakdown, setDailyBreakdown] = useState<any[]>([]);
 
   // Load app settings, daily token count, and per-session breakdown on mount; subscribe to updates
   useEffect(() => {
     const api = window.carapace as any;
-    api?.getAppSettings?.().then((s: any) => setDailyTokenGoal(s?.dailyTokenGoal ?? 0));
+    api?.getAppSettings?.().then((s: any) => {
+      setDailyTokenGoal(s?.dailyTokenGoal ?? 0);
+      setDailyCostGoal(s?.dailyCostGoal ?? 0);
+    });
     api?.getDailyTokens?.().then((t: number) => setDailyTokens(t ?? 0));
     api?.getDailySessionBreakdown?.().then((b: any[]) => setDailyBreakdown(b ?? []));
-    const unsubSettings = api?.onSettingsUpdated?.((s: any) =>
-      setDailyTokenGoal(s?.dailyTokenGoal ?? 0),
-    );
+    const unsubSettings = api?.onSettingsUpdated?.((s: any) => {
+      setDailyTokenGoal(s?.dailyTokenGoal ?? 0);
+      setDailyCostGoal(s?.dailyCostGoal ?? 0);
+    });
     const unsubTokens = api?.onDailyTokensUpdated?.((t: number) => setDailyTokens(t));
     const unsubBreakdown = api?.onDailyBreakdownUpdated?.((b: any[]) => setDailyBreakdown(b ?? []));
     return () => {
@@ -367,6 +373,20 @@ export function FloatingOrb() {
       .filter((s) => s.valid);
   }, [dailyBreakdown, sessions, gaugeMode]);
 
+  const dailyCost = useMemo(
+    () => dailyBreakdown.reduce((sum: number, s: any) => sum + (s.cost ?? 0), 0),
+    [dailyBreakdown],
+  );
+
+  // Which fuel gauge mode to actually display.
+  // If no token goal is set and mode is 0, auto-show cost instead.
+  const effectiveFuelMode: 0 | 1 =
+    fuelGaugeMode === 0 && dailyTokenGoal === 0 && dailyCostGoal > 0 ? 1 : fuelGaugeMode;
+  const showFuelGauge = dailyTokenGoal > 0 || dailyCostGoal > 0;
+  const fuelValue = effectiveFuelMode === 0 ? dailyTokens : dailyCost;
+  const fuelGoal = effectiveFuelMode === 0 ? dailyTokenGoal : dailyCostGoal;
+  const fuelPct = fuelGoal > 0 ? Math.min(1, fuelValue / fuelGoal) : 0;
+
   const handleMainMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
     isDragging.current = true;
@@ -505,7 +525,7 @@ export function FloatingOrb() {
       // Check round token fuel gauge — also drive hover state directly from mousemove
       // (onMouseEnter is unreliable with Electron's setIgnoreMouseEvents pattern)
       let overGauge = false;
-      if (dailyTokenGoal > 0) {
+      if (showFuelGauge) {
         const dx = mx - TOKEN_GAUGE_X;
         const dy = my - TOKEN_GAUGE_Y;
         overGauge = dx * dx + dy * dy <= (TOKEN_GAUGE_R + PAD) * (TOKEN_GAUGE_R + PAD);
@@ -537,7 +557,7 @@ export function FloatingOrb() {
         window.carapace?.setIgnoreMouseEvents(shouldIgnore);
       }
     },
-    [pills, dailyTokenGoal, setTokenGaugeHovered],
+    [pills, showFuelGauge, setTokenGaugeHovered],
   );
 
   return (
@@ -671,9 +691,9 @@ export function FloatingOrb() {
         ))}
       </AnimatePresence>
 
-      {/* Round fuel gauge — below the orb, shows daily token budget consumption */}
-      {dailyTokenGoal > 0 && (() => {
-        const pct = Math.min(1, dailyTokens / dailyTokenGoal);
+      {/* Round fuel gauge — below the orb, shows daily budget consumption (tokens or cost) */}
+      {showFuelGauge && (() => {
+        const pct = fuelPct;
         // Needle: SVG angle = 45 - pct * 270 (starts lower-right/green, sweeps CCW to lower-left/red)
         const needleAngleRad = ((45 - pct * 270) * Math.PI) / 180;
         const needleLen = 5.5;
@@ -688,23 +708,44 @@ export function FloatingOrb() {
               width: TOKEN_GAUGE_R * 2,
               height: TOKEN_GAUGE_R * 2,
               borderRadius: "50%",
-              cursor: "default",
+              cursor: "pointer",
+              zIndex: 10,
+            }}
+            onMouseDown={(e) => {
+              if (e.button !== 0) return;
+              e.stopPropagation();
+              setFuelGaugeMode((m) => (m === 0 ? 1 : 0));
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              (window.carapace as any)?.fuelGaugeContextMenu?.();
             }}
             animate={{
               filter: tokenGaugeHovered
                 ? "drop-shadow(0 0 6px rgba(255,255,255,0.35))"
-                : "drop-shadow(0 0 3px rgba(0,0,0,0.5))",
+                : effectiveFuelMode === 1
+                  ? "drop-shadow(0 0 4px rgba(34,211,238,0.5))"
+                  : "drop-shadow(0 0 3px rgba(0,0,0,0.5))",
             }}
-            transition={{ duration: 0.15 }}
+            whileTap={{ scale: 0.82 }}
+            transition={{ duration: 0.12 }}
           >
             <svg viewBox="0 0 22 22" width={TOKEN_GAUGE_R * 2} height={TOKEN_GAUGE_R * 2}>
               <defs>
-                {/* Gradient: red (left/empty) → yellow (mid) → green (right/full) */}
-                <linearGradient id="fuelGrad" gradientUnits="userSpaceOnUse"
+                {/* Tokens gradient: red → yellow → green */}
+                <linearGradient id="fuelGradTokens" gradientUnits="userSpaceOnUse"
                   x1="4.5" y1="11" x2="17.5" y2="11">
                   <stop offset="0%"   stopColor="#f87171" />
                   <stop offset="55%"  stopColor="#facc15" />
                   <stop offset="100%" stopColor="#4ade80" />
+                </linearGradient>
+                {/* Cost gradient: orange → yellow → cyan */}
+                <linearGradient id="fuelGradCost" gradientUnits="userSpaceOnUse"
+                  x1="4.5" y1="11" x2="17.5" y2="11">
+                  <stop offset="0%"   stopColor="#f97316" />
+                  <stop offset="50%"  stopColor="#facc15" />
+                  <stop offset="100%" stopColor="#22d3ee" />
                 </linearGradient>
                 {/* Radial gradient for glass bevel */}
                 <radialGradient id="fuelBevel" cx="38%" cy="32%" r="55%">
@@ -713,10 +754,11 @@ export function FloatingOrb() {
                 </radialGradient>
               </defs>
 
-              {/* Background disc */}
+              {/* Background disc — border tints cyan in cost mode */}
               <circle cx="11" cy="11" r="11"
                 fill="rgba(12,12,20,0.88)"
-                stroke="rgba(255,255,255,0.18)" strokeWidth="0.7" />
+                stroke={effectiveFuelMode === 1 ? "rgba(34,211,238,0.55)" : "rgba(255,255,255,0.18)"}
+                strokeWidth="0.7" />
 
               {/* Gradient glass bevel */}
               <circle cx="11" cy="11" r="11" fill="url(#fuelBevel)" style={{ pointerEvents: "none" }} />
@@ -730,10 +772,10 @@ export function FloatingOrb() {
                 style={{ pointerEvents: "none" }}
               />
 
-              {/* Colored gradient arc */}
+              {/* Colored gradient arc — switches palette by mode */}
               <path d="M 6.05 15.95 A 7 7 0 1 1 15.95 15.95"
                 fill="none"
-                stroke="url(#fuelGrad)"
+                stroke={effectiveFuelMode === 1 ? "url(#fuelGradCost)" : "url(#fuelGradTokens)"}
                 strokeWidth="2"
                 strokeLinecap="round"
                 style={{ pointerEvents: "none", opacity: 0.85 }}
@@ -744,23 +786,24 @@ export function FloatingOrb() {
                 stroke="rgba(0,0,0,0.45)" strokeWidth="1.4" strokeLinecap="round"
                 style={{ pointerEvents: "none" }} />
 
-              {/* Needle */}
+              {/* Needle — cyan in cost mode, white in tokens mode */}
               <line x1="11" y1="11" x2={nx} y2={ny}
-                stroke="rgba(255,255,255,0.95)" strokeWidth="1.2" strokeLinecap="round"
+                stroke={effectiveFuelMode === 1 ? "#22d3ee" : "rgba(255,255,255,0.95)"}
+                strokeWidth="1.2" strokeLinecap="round"
                 style={{ pointerEvents: "none" }} />
 
               {/* Center pivot */}
               <circle cx="11" cy="11" r="1.4"
-                fill="rgba(255,255,255,0.90)"
+                fill={effectiveFuelMode === 1 ? "#22d3ee" : "rgba(255,255,255,0.90)"}
                 style={{ pointerEvents: "none" }} />
             </svg>
           </motion.div>
         );
       })()}
 
-      {/* Token fuel gauge tooltip — shows on hover */}
+      {/* Fuel gauge tooltip — shows on hover */}
       <AnimatePresence>
-        {tokenGaugeHovered && dailyTokenGoal > 0 && (
+        {tokenGaugeHovered && showFuelGauge && (
           <motion.div
             key="fuel-tooltip"
             initial={{ opacity: 0, y: -4 }}
@@ -784,13 +827,18 @@ export function FloatingOrb() {
             <div style={{
               fontSize: 15,
               fontWeight: 800,
-              color: `hsl(${Math.max(0, 120 - Math.min(1, dailyTokens / dailyTokenGoal) * 120)}, 75%, 55%)`,
+              color: `hsl(${Math.max(0, 120 - fuelPct * 120)}, 75%, 55%)`,
               whiteSpace: "nowrap",
             }}>
-              {formatTokenCount(dailyTokens)}
+              {effectiveFuelMode === 0 ? formatTokenCount(dailyTokens) : formatCost(dailyCost)}
             </div>
             <div style={{ fontSize: 10, fontWeight: 500, color: "rgba(255,255,255,0.45)", whiteSpace: "nowrap" }}>
-              / {formatTokenCount(dailyTokenGoal)}
+              {effectiveFuelMode === 0
+                ? `/ ${formatTokenCount(dailyTokenGoal)}`
+                : `/ ${formatCost(dailyCostGoal)}`}
+            </div>
+            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.30)", marginTop: 2 }}>
+              {effectiveFuelMode === 0 ? "tokens · click for cost" : "cost · click for tokens"}
             </div>
           </motion.div>
         )}
