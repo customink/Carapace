@@ -2,29 +2,32 @@ import * as fs from 'fs'
 import { join } from 'path'
 import { DAILY_TOKENS_FILE } from '@shared/constants/paths'
 
-// Persists the daily token accumulator independently of JSONL state.
+// Persists the daily token/cost accumulator independently of JSONL state.
 //
-// Problem: JSONL token counts are cumulative across the session's entire lifetime.
-// A multi-day session that burned 1M tokens yesterday will report 1M+ today even
-// before the user types anything new. Naively taking the MAX would count yesterday's
-// tokens again today.
+// Problem: JSONL token/cost counts are cumulative across the session's entire lifetime.
+// A multi-day session that burned 1M tokens and $20 yesterday will report those same
+// numbers today even before the user types anything new.
 //
-// Solution: record a per-session `baseline` on the first observation of each day.
+// Solution: record a per-session baseline on the first observation of each day.
 //   tokens_today = offset + max(0, currentJSONLTotal - baseline)
+//   cost_today   = costOffset + max(0, currentJSONCost - costBaseline)
 //
-// `offset` handles /clear: when the JSONL total drops below `peak` (Claude's /clear
-// command resets the file), we freeze the pre-clear contribution into `offset` and
-// restart the baseline from 0, so those tokens aren't lost from today's total.
+// `offset`/`costOffset` handles /clear: when the JSONL total drops below `peak`
+// (Claude's /clear command resets the file), we freeze the pre-clear contribution
+// into offset and restart from 0, so those tokens/dollars aren't lost from today's total.
 //
-// Also stores cost, model, color, name, and projectPath so the per-session gauge
-// has complete data even for sessions that have already ended.
+// /clear detection is done on the token total (integer, exact) and applied to cost too,
+// since cost is derived from the same JSONL file and resets together.
 
 export interface SessionDayData {
-  tokens: number       // tokens burned today
-  baseline: number     // JSONL total at start of today for this session
-  offset: number       // accumulated tokens from /clear resets within today
-  peak: number         // highest JSONL total seen today (detects /clear)
-  cost: number
+  tokens: number        // tokens burned today
+  baseline: number      // JSONL token total at start of today for this session
+  offset: number        // accumulated tokens from /clear resets within today
+  peak: number          // highest JSONL token total seen today (detects /clear)
+  cost: number          // cost burned today (dollars)
+  costBaseline: number  // JSONL cost at start of today for this session
+  costOffset: number    // accumulated cost from /clear resets within today
+  costPeak: number      // highest JSONL cost seen today
   model: string
   color?: string
   name?: string
@@ -67,11 +70,10 @@ export function loadDailyTokens(): void {
       store = { date: today(), sessions: {} }
       return
     }
-    // Detect v2 format (no baseline field) — discard so fresh baselines are established.
-    // Old data without baselines would double-count tokens from previous days.
     const rawSessions = parsed.sessions ?? {}
     const firstEntry = Object.values(rawSessions)[0] as any
-    if (firstEntry && typeof firstEntry.baseline === 'undefined') {
+    // Discard v2 (no baseline) and v3 (no costBaseline) — stale data would double-count.
+    if (firstEntry && (typeof firstEntry.baseline === 'undefined' || typeof firstEntry.costBaseline === 'undefined')) {
       store = { date: today(), sessions: {} }
       return
     }
@@ -108,28 +110,46 @@ export function recordSessionData(
   let offset: number
   let peak: number
   let tokens: number
+  let costBaseline: number
+  let costOffset: number
+  let costPeak: number
+  let costToday: number
 
   if (!prev) {
-    // First observation today — current JSONL total is the carry-over baseline.
-    // Nothing has been burned yet today from this session's perspective.
+    // First observation today — JSONL totals are the carry-over baselines.
     baseline = currentTotal
     offset = 0
     peak = currentTotal
     tokens = 0
+    costBaseline = cost
+    costOffset = 0
+    costPeak = cost
+    costToday = 0
   } else if (currentTotal < prev.peak) {
-    // JSONL total dropped below our previous peak → /clear was run.
-    // Freeze what was burned in the pre-clear run, then start fresh from 0.
+    // JSONL token total dropped below our previous peak → /clear was run.
+    // Cost resets with the same JSONL file, so apply the same logic to cost.
     const preClearBurned = prev.peak - prev.baseline
     offset = prev.offset + preClearBurned
     baseline = 0
     peak = currentTotal
     tokens = offset + currentTotal
+
+    const preClearCost = prev.costPeak - prev.costBaseline
+    costOffset = prev.costOffset + Math.max(0, preClearCost)
+    costBaseline = 0
+    costPeak = cost
+    costToday = costOffset + cost
   } else {
     // Normal growth within the same JSONL run.
     baseline = prev.baseline
     offset = prev.offset
     peak = currentTotal
     tokens = offset + (currentTotal - baseline)
+
+    costBaseline = prev.costBaseline
+    costOffset = prev.costOffset
+    costPeak = cost
+    costToday = costOffset + Math.max(0, cost - costBaseline)
   }
 
   const prevTokens = prev?.tokens ?? 0
@@ -140,7 +160,10 @@ export function recordSessionData(
     baseline,
     offset,
     peak,
-    cost: tokensChanged ? cost : (prev?.cost ?? cost),
+    cost: costToday,
+    costBaseline,
+    costOffset,
+    costPeak,
     model: model || prev?.model || '',
     color: color || prev?.color,
     name: name || prev?.name,
