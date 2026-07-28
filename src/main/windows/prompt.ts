@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain, dialog } from 'electron'
 import { SESSION_COLORS } from '@shared/constants/colors'
+import { MODEL_OPTIONS } from '@shared/constants/models'
 
 export interface SessionOptions {
   title: string
@@ -7,6 +8,8 @@ export interface SessionOptions {
   bypass: boolean
   color: string
   shellTab: boolean
+  /** Value for `claude --model`; '' means the CLI default. */
+  model: string
 }
 
 // Human-friendly names for the color palette
@@ -29,7 +32,7 @@ export function showSessionOptionsDialog(): Promise<SessionOptions | null> {
   return new Promise((resolve) => {
     const win = new BrowserWindow({
       width: 420,
-      height: 400,
+      height: 470,
       resizable: false,
       minimizable: false,
       maximizable: false,
@@ -55,10 +58,10 @@ export function showSessionOptionsDialog(): Promise<SessionOptions | null> {
       ipcMain.removeAllListeners(channelBrowse)
     }
 
-    ipcMain.once(channelOk, (_e, title: string, folder: string, bypass: boolean, color: string, shellTab: boolean) => {
+    ipcMain.once(channelOk, (_e, title: string, folder: string, bypass: boolean, color: string, shellTab: boolean, model: string) => {
       cleanup()
       win.close()
-      resolve({ title: title || '', folder: folder || '', bypass, color, shellTab })
+      resolve({ title: title || '', folder: folder || '', bypass, color, shellTab, model: model || '' })
     })
 
     ipcMain.once(channelCancel, () => {
@@ -84,6 +87,13 @@ export function showSessionOptionsDialog(): Promise<SessionOptions | null> {
     })
 
     // Build color <option> elements
+    const modelOptions = MODEL_OPTIONS.map(m =>
+      `<option value="${m.id}">${m.label}</option>`
+    ).join('')
+    const modelDescriptions = JSON.stringify(
+      Object.fromEntries(MODEL_OPTIONS.map(m => [m.id, m.description]))
+    ).replace(/</g, '\\u003c')
+
     const colorOptions = SESSION_COLORS.map((hex, i) => {
       const name = COLOR_NAMES[hex] || `Color ${i + 1}`
       return `<option value="${hex}">${name}</option>`
@@ -121,6 +131,7 @@ export function showSessionOptionsDialog(): Promise<SessionOptions | null> {
   }
   select:focus { border-color: rgba(124,58,237,0.6); }
   .field { margin-bottom: 10px; }
+  .model-hint { font-size: 11px; color: #64748b; margin-top: 3px; min-height: 14px; }
   .folder-row { display: flex; gap: 6px; }
   .folder-row input { flex: 1; }
   .color-row { display: flex; gap: 8px; align-items: center; }
@@ -180,6 +191,11 @@ export function showSessionOptionsDialog(): Promise<SessionOptions | null> {
       </select>
     </div>
   </div>
+  <div class="field">
+    <label>Model</label>
+    <select id="model">${modelOptions}</select>
+    <div class="model-hint" id="modelHint"></div>
+  </div>
   <div class="checkbox-row">
     <input type="checkbox" id="bypass" checked />
     <label for="bypass">Skip permissions</label>
@@ -197,6 +213,15 @@ export function showSessionOptionsDialog(): Promise<SessionOptions | null> {
     const titleEl = document.getElementById('title');
     const folderEl = document.getElementById('folder');
     const colorEl = document.getElementById('color');
+    const modelEl = document.getElementById('model');
+    const modelHint = document.getElementById('modelHint');
+    const modelDescriptions = ${modelDescriptions};
+
+    function updateModelHint() {
+      modelHint.textContent = modelDescriptions[modelEl.value] || '';
+    }
+    modelEl.addEventListener('change', updateModelHint);
+    updateModelHint();
     const colorDot = document.getElementById('colorDot');
     const bypassEl = document.getElementById('bypass');
     const shellTabEl = document.getElementById('shellTab');
@@ -218,7 +243,7 @@ export function showSessionOptionsDialog(): Promise<SessionOptions | null> {
     });
 
     function submit() {
-      ipcRenderer.send('${channelOk}', titleEl.value, folderEl.value, bypassEl.checked, colorEl.value, shellTabEl.checked);
+      ipcRenderer.send('${channelOk}', titleEl.value, folderEl.value, bypassEl.checked, colorEl.value, shellTabEl.checked, modelEl.value);
     }
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') submit();

@@ -30,7 +30,7 @@ let spawnCount = 0
  * Spawn a new Claude Code session in an embedded Electron terminal window.
  * Uses xterm.js + node-pty for a fully controlled terminal experience.
  */
-export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string, colorOverride?: string, shellTab?: boolean, existingPtyId?: string, label?: string, shellTabNames?: string[], background?: boolean, resumeSessionId?: string, addDirs?: string[]): { ptyId: string; win: import('electron').BrowserWindow } {
+export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string, colorOverride?: string, shellTab?: boolean, existingPtyId?: string, label?: string, shellTabNames?: string[], background?: boolean, resumeSessionId?: string, addDirs?: string[], model?: string): { ptyId: string; win: import('electron').BrowserWindow } {
   const color = colorOverride || SESSION_COLORS[spawnCount % SESSION_COLORS.length]!
   spawnCount++
 
@@ -70,6 +70,7 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
       title,
       resumeSessionId,
       addDirs,
+      model,
     })
 
     // Restore label and shell tab names from history if reviving

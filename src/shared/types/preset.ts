@@ -9,4 +9,5 @@ export interface Preset {
   shellTabCount: number  // number of companion shell tabs (1+)
   shellTabNames: string[] // custom names per shell tab
   stackId?: string       // optional: linked stack; stack.systemPath overrides folder at launch
+  model?: string         // optional: value for `claude --model`; '' or absent = CLI default
 }

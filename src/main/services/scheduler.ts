@@ -1,12 +1,7 @@
-import { BrowserWindow, app } from 'electron'
 import { loadSchedules } from './schedule-store'
 import { loadPresets } from './preset-store'
-import { spawnClaudeSession } from './session-spawner'
-import { ensureTrustAccepted } from './claude-config'
-import * as ptyManager from './pty-manager'
+import { spawnWithPrompt } from './spawn-with-prompt'
 import type { ScheduledPrompt } from '@shared/types/scheduled-prompt'
-
-const MAX_WAIT_MS = 30_000 // max time to wait for Claude prompt to appear
 
 let tickTimer: ReturnType<typeof setTimeout> | null = null
 const firedToday = new Map<string, string>()
@@ -64,13 +59,11 @@ function checkSchedules(): void {
 }
 
 export function fireSchedule(schedule: ScheduledPrompt): void {
-  // Pre-accept the trust dialog so it won't block the scheduled session
-  ensureTrustAccepted()
-
   let bypass = false
   let color: string | undefined
   let title = schedule.name
   let shellTabNames: string[] | undefined
+  let model: string | undefined
 
   if (schedule.presetId) {
     const presets = loadPresets()
@@ -79,6 +72,7 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
       bypass = preset.bypass
       color = preset.color || undefined
       title = preset.title || schedule.name
+      model = preset.model || undefined
       if (preset.shellTab) {
         const count = Math.max(1, preset.shellTabCount)
         shellTabNames = []
@@ -87,68 +81,14 @@ export function fireSchedule(schedule: ScheduledPrompt): void {
     }
   }
 
-  // Spawn in background
-  const { ptyId, win } = spawnClaudeSession(
-    bypass, title, schedule.cwd || undefined, color,
-    !!(shellTabNames && shellTabNames.length > 0),
-    undefined, undefined, shellTabNames,
-    true // background
-  )
-
-  // Show dock since we have a terminal now, with orb icon
-  app.dock?.show()
-  const { resetDockIcon: resetIcon } = require('./icon-generator')
-  resetIcon()
-
-  let promptInjected = false
-
-  const maxTimer = setTimeout(() => {
-    if (!promptInjected) injectPrompt()
-  }, MAX_WAIT_MS)
-
-  function injectPrompt() {
-    if (promptInjected) return
-    promptInjected = true
-    clearTimeout(maxTimer)
-    ptyManager.setDataInterceptor(ptyId, null)
-    if (win.isDestroyed()) return
-
-    setTimeout(() => {
-      if (win.isDestroyed()) return
-      ptyManager.writeToPty(ptyId, schedule.prompt + '\r')
-      const session = ptyManager.getByPtyId(ptyId)
-      if (session) session.scheduledBringToFront = true
-    }, 500)
-  }
-
-  // Wait for PTY to be created (async after renderer loads), then watch for Claude ready signal
-  function waitForPtyAndSetup() {
-    const session = ptyManager.getByPtyId(ptyId)
-    if (!session) {
-      setTimeout(waitForPtyAndSetup, 500)
-      return
-    }
-    setupInterceptor()
-  }
-  waitForPtyAndSetup()
-
-  function setupInterceptor() {
-    let rawBuffer = ''
-    ptyManager.setDataInterceptor(ptyId, (data) => {
-      if (win.isDestroyed()) return
-      rawBuffer += data
-
-      // Strip ANSI sequences for matching
-      const stripped = rawBuffer
-        .replace(/\x1b\[[^\x40-\x7e]*[\x40-\x7e]/g, '')
-        .replace(/\x1b\][^\x07]*\x07/g, '')
-        .replace(/\x1b[^[]/g, '')
-        .replace(/[\x00-\x1f]/g, ' ')
-
-      // Detect Claude ready: "Cost:" status line appears after full init
-      if (!promptInjected && stripped.toLowerCase().includes('cost:')) {
-        injectPrompt()
-      }
-    })
-  }
+  spawnWithPrompt({
+    prompt: schedule.prompt,
+    cwd: schedule.cwd || undefined,
+    title,
+    color,
+    bypass,
+    shellTabNames,
+    model,
+    background: true,
+  })
 }

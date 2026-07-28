@@ -36,7 +36,10 @@ Main Process (Node.js)          Preload (bridge)        Renderer (React)
 │   ├── preset-dialog.ts
 │   ├── schedule-dialog.ts
 │   ├── settings.ts
-│   └── slack-compose.ts
+│   ├── slack-compose.ts
+│   ├── review-dialog.ts
+│   ├── quick-prompt-dialog.ts
+│   └── text-input-dialog.ts
 ├── services/
 │   ├── pty-manager.ts
 │   ├── session-spawner.ts
@@ -56,7 +59,11 @@ Main Process (Node.js)          Preload (bridge)        Renderer (React)
 │   ├── scheduler.ts
 │   ├── icon-generator.ts
 │   ├── prompt-history.ts
-│   └── app-settings-store.ts
+│   ├── app-settings-store.ts
+│   ├── spawn-with-prompt.ts
+│   ├── deep-link.ts
+│   ├── pr-resolver.ts
+│   └── review-preset-store.ts
 ├── ipc/
 │   ├── channels.ts
 │   └── handlers.ts
@@ -135,17 +142,88 @@ Settings → "Orb Click Action" with three rows:
 
 Options: New Session, New Session (Skip Permissions), Focus Most Recent, Bring All to Front, Launch Preset
 
+### Spawning a Session with a Prompt
+`spawn-with-prompt.ts` owns the "spawn a session and type a prompt into it" flow, shared by
+the scheduler and Slack-triggered PR reviews. Order matters:
+1. `ensureTrustAccepted()` — otherwise the trust dialog swallows the prompt
+2. `spawnClaudeSession(...)`
+3. Poll `getByPtyId()` every 500ms — **the PTY is created async inside `did-finish-load`**, so
+   an interceptor attached immediately would attach to nothing
+4. Data interceptor waits for `Cost:` in ANSI-stripped PTY output as the Claude-ready signal
+   (a fixed delay races startup on a cold machine); 30s backstop
+5. `writeToPty(prompt + '\r')`, optionally setting `scheduledBringToFront`
+
 ### Scheduled Prompts
 - `schedule-store.ts`: JSON CRUD at `~/.claude/usage-data/carapace-schedules.json`
-- `scheduler.ts`: 60s interval checks, fires once per day per schedule
-- When fired:
-  1. Terminal spawns with `background: true` (hidden window)
-  2. PTY data interceptor watches for trust dialog ("safety check", "trust") → auto-presses Enter
-  3. Waits for `Cost:` in PTY output as Claude-ready signal (NOT fixed delay)
-  4. Injects prompt via `writeToPty()`
-  5. Sets `scheduledBringToFront` flag → window shown on first `end_turn`
-- **Critical timing**: interceptor must wait for PTY to be created (async `did-finish-load`). Uses polling every 500ms until `getByPtyId()` returns the session.
-- Debug logging to `/tmp/carapace-scheduler.log`
+- `scheduler.ts`: recursive `setTimeout` aligned to the minute boundary, fires once per day
+- `fireSchedule()` resolves the preset, then delegates to `spawnWithPrompt({ background: true })`
+
+### PR Review
+Right-click a PR link anywhere (including Slack) → **Services → Review in Carapace** → review
+session on that engineer's own machine. Fully local: no server, no Slack app, no tokens.
+
+Two modes:
+- **Review** → `startReviewFlow()` → dialog (editable prompt, preset picker) → spawn
+- **Quick Review** → `startQuickReview()` → no dialog, renders the preset flagged `isQuick`
+  and spawns immediately. Falls back to the dialog if the local clone isn't known yet.
+
+`service-installer.ts` writes three Automator workflows to `~/Library/Services/` on every
+launch (idempotent, gated on a `VERSION` file), then `pbs -flush` so they appear without a
+logout. Each greps a PR URL out of the selection and runs `open carapace://…`, which launches
+Carapace if it's closed — **deliberately not uninstalled on quit**, since that's what starts it.
+
+| Service | Deep link |
+|---|---|
+| Review in Carapace | `carapace://review?pr=…` |
+| Quick Review in Carapace | `carapace://review?pr=…&quick=1` |
+| Edit Quick Review Prompt | `carapace://quick-prompt` |
+
+Other entry points: **⌥⌘R** / **⇧⌥⌘R** global shortcuts read a PR link from the clipboard (for
+apps that don't surface Services), and the orb menu has all three (the dev-mode path, since
+deep links need the packaged app).
+
+**Why Quick Review may skip the dialog**: the Service passes only the PR URL — host-whitelisted
+and shape-checked — so no attacker-written message text reaches the prompt. Skipping
+*permissions* is a separate opt-in (`bypass` on the quick preset, checkbox in the quick prompt
+editor) and defaults off, since the diff itself is untrusted. If a path is ever added that
+forwards quoted message text, it must go through the dialog.
+
+- `deep-link.ts` — parses `carapace://review?pr=…&preset=…&permalink=…&msg=…`, orchestrates
+  the flow. `queueDeepLink()` buffers links that arrive before the app is ready.
+- `pr-resolver.ts` — PR URL parsing (host-whitelisted), repo→local-path resolution
+  (remembered map, then Stack paths verified against the git remote), and worktree checkout.
+- `review-preset-store.ts` — prompt templates with `{{pr_url}}`, `{{owner}}`, `{{repo}}`,
+  `{{pr_number}}`, `{{branch}}`, `{{slack_permalink}}`, `{{slack_message}}`. Seeds three
+  defaults on first load.
+- `review-dialog.ts` — preset dropdown, editable prompt, worktree toggle, "Save as Preset…"
+  (which genericizes this PR's details back into placeholders).
+- `quick-prompt-dialog.ts` — picks which preset Quick Review uses and edits its template.
+
+**Deep link gotchas**:
+- `app.on('open-url')` is registered at **module scope, above `whenReady()`** — on a cold
+  launch macOS fires it before the app is ready and a later listener misses it entirely.
+- macOS reads the scheme from `CFBundleURLTypes` (`build.protocols` in package.json);
+  `setAsDefaultProtocolClient` alone is a no-op there. **Deep links do not work from source** —
+  test against `npm run dist`. Use the orb's "Review PR from Clipboard..." item in dev.
+- A second instance calls `process.exit(0)`, not `app.quit()` — quitting would fire
+  `before-quit` and run `uninstallHooks()`, breaking the instance that's already running.
+- **Any window opened from outside the app must call `app.focus({ steal: true })`.** The dock
+  is hidden (`app.dock.hide()`), so Carapace cannot come forward on its own: `win.show()` +
+  `win.focus()` creates the window *behind* the app you triggered it from, even with
+  `alwaysOnTop: true`. It looks exactly like nothing happened. Applies to review-dialog,
+  quick-prompt-dialog and text-input-dialog.
+- **`center: true` uses the primary display**, so on a multi-monitor setup a dialog triggered
+  from an app on the external screen opens on the laptop screen — also indistinguishable from
+  "nothing happened". Use `centerOnCursorDisplay()` (`windows/display-utils.ts`) before showing.
+
+**Security**: the prompt can embed text from wherever the link came from (a Slack message any
+workspace member can write). It is fenced and labelled as untrusted data, the review dialog
+always requires a human to read the prompt before launch, and "skip permissions" defaults off.
+Do not add an auto-launch path.
+
+- Reviews check the PR out with `git worktree add` + `refs/pull/N/head` (no `gh` dependency,
+  works for forks) into `~/carapace-reviews/<repo>-pr<N>`, so the engineer's own branch and
+  working tree are never touched.
 
 ### Dynamic Dock Icon
 - `icon-generator.ts`: generates colored orb NativeImages (PNG via raw CRC32+zlib)
@@ -177,6 +255,20 @@ Options: New Session, New Session (Skip Permissions), Focus Most Recent, Bring A
 
 ### Color System
 8-color palette in `shared/constants/colors.ts`. Colors are assigned at spawn time and stored in the PTY manager.
+
+### Model Selection
+`shared/constants/models.ts` holds the model catalog — aliases (`opus`, `sonnet`, `haiku`, `fable`) that
+track the latest release, plus pinned IDs (`claude-opus-5`, `claude-sonnet-5`, …). There is **no CLI
+command that enumerates models**, so this list is maintained by hand; keep it in sync with
+`windows/model-selector.ts` (the mid-session `/model` switcher).
+
+- "New Session with Options..." has a Model dropdown; the choice flows
+  `SessionOptions.model` → `spawnClaudeSession(..., model)` → `createPty` → `claude --model <value>`.
+- Presets carry `Preset.model`, honoured by every launch path: the orb Presets submenu, the
+  configurable orb click action, and scheduled prompts (via `spawnWithPrompt`).
+- Empty string means "no `--model` flag" — the CLI uses its own default.
+- The value is written into a shell command line, so it is **shape-checked with `isValidModelId()`
+  rather than quoted**; anything failing `/^[A-Za-z0-9._-]{1,64}$/` is dropped silently.
 
 ### IPC Channels
 Defined in `ipc/channels.ts`. Key patterns:
@@ -210,6 +302,9 @@ Defined in `ipc/channels.ts`. Key patterns:
 - `~/.claude/usage-data/carapace-sidebar-order.json` — sidebar button order + hidden state
 - `~/.claude/usage-data/carapace-images/` — global image gallery (order.json + image files)
 - `~/.claude/usage-data/carapace-presets.json` — saved session presets
+- `~/.claude/usage-data/carapace-review-presets.json` — PR review prompt templates
+- `~/.claude/usage-data/carapace-repo-map.json` — `owner/repo` → local clone path
+- `~/carapace-reviews/<repo>-pr<N>/` — git worktrees created for PR reviews
 - `~/.claude/usage-data/carapace-schedules.json` — scheduled prompts
 - `~/.claude/usage-data/carapace-filetree-settings.json` — file tree show hidden toggle
 - `~/.claude/carapace/app-settings.json` — app settings (chime, orb click actions)

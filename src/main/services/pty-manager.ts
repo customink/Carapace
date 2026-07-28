@@ -2,6 +2,7 @@ import { BrowserWindow, app } from 'electron'
 import { execSync } from 'child_process'
 import type { IPty } from 'node-pty'
 import { updateHistoryEntry } from './session-history'
+import { isValidModelId } from '@shared/constants/models'
 
 export interface PtySession {
   ptyId: string
@@ -192,6 +193,7 @@ export function createPty(options: {
   title?: string
   resumeSessionId?: string  // Claude Code session ID to resume via --resume
   addDirs?: string[]        // extra directories to add to Claude Code context via --add-dir
+  model?: string            // alias ('opus') or full ID ('claude-opus-5') via --model
 }): PtySession {
   // Require node-pty at runtime (native module, externalized from bundle)
   const nodePty = require('node-pty') as typeof import('node-pty')
@@ -199,6 +201,8 @@ export function createPty(options: {
   const claudePath = findClaudePath()
   let flags = options.bypass ? ' --dangerously-skip-permissions' : ''
   flags += ' --teammate-mode in-process'
+  // Shape-checked rather than quoted: this is written into a shell command line
+  if (options.model && isValidModelId(options.model)) flags += ` --model ${options.model}`
   if (options.resumeSessionId) flags += ` --resume ${options.resumeSessionId}`
   if (options.addDirs?.length) {
     for (const dir of options.addDirs) flags += ` --add-dir "${dir}"`

@@ -16,12 +16,16 @@ interface ModelDef {
 }
 
 const MODELS: ModelDef[] = [
-  { id: 'claude-opus-4-6', name: 'Opus 4.6', description: 'Most capable, best for complex tasks', tier: 'highest' },
+  { id: 'fable', name: 'Fable (latest)', description: 'Alias for the latest Fable model', tier: 'highest' },
+  { id: 'claude-fable-5', name: 'Fable 5', description: 'Most capable; hardest long-horizon work', tier: 'highest' },
   { id: 'opus', name: 'Opus (latest)', description: 'Alias for the latest Opus model', tier: 'highest' },
-  { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', description: 'Balanced speed and capability', tier: 'mid' },
+  { id: 'claude-opus-5', name: 'Opus 5', description: 'Complex agentic coding and deep reasoning', tier: 'highest' },
+  { id: 'claude-opus-4-8', name: 'Opus 4.8', description: 'Previous-generation Opus', tier: 'highest' },
   { id: 'sonnet', name: 'Sonnet (latest)', description: 'Alias for the latest Sonnet model', tier: 'mid' },
-  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5', description: 'Fastest and most compact', tier: 'low' },
+  { id: 'claude-sonnet-5', name: 'Sonnet 5', description: 'Near-Opus quality, lower cost', tier: 'mid' },
+  { id: 'claude-sonnet-4-6', name: 'Sonnet 4.6', description: 'Previous-generation Sonnet', tier: 'mid' },
   { id: 'haiku', name: 'Haiku (latest)', description: 'Alias for the latest Haiku model', tier: 'low' },
+  { id: 'claude-haiku-4-5', name: 'Haiku 4.5', description: 'Fastest and most compact', tier: 'low' },
 ]
 
 export function toggleModelSelectorWindow(parentWin: BrowserWindow, color: string): boolean {

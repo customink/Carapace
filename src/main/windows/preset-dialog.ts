@@ -1,5 +1,6 @@
 import { BrowserWindow, ipcMain, dialog } from 'electron'
 import { SESSION_COLORS } from '@shared/constants/colors'
+import { MODEL_OPTIONS } from '@shared/constants/models'
 import type { Preset } from '@shared/types/preset'
 import { loadStacks } from '../services/stacks-store'
 
@@ -27,6 +28,7 @@ export interface PresetDialogResult {
   shellTabCount: number
   shellTabNames: string[]
   stackId?: string
+  model: string
 }
 
 /**
@@ -38,7 +40,7 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
   return new Promise((resolve) => {
     const win = new BrowserWindow({
       width: 440,
-      height: 530,
+      height: 600,
       resizable: false,
       minimizable: false,
       maximizable: false,
@@ -111,6 +113,10 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
     const initColor = existing?.color || ''
     const initDotColor = initColor || SESSION_COLORS[0]
     const initStackId = existing?.stackId || ''
+    const initModel = existing?.model || ''
+    const modelOptions = MODEL_OPTIONS.map(m =>
+      `<option value="${m.id}"${m.id === initModel ? ' selected' : ''}>${m.label}</option>`
+    ).join('')
 
     const stacks = loadStacks()
     const stackOptions = stacks.map(s => {
@@ -238,6 +244,10 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
       </select>
     </div>
   </div>
+  <div class="field">
+    <label>Model</label>
+    <select id="model">${modelOptions}</select>
+  </div>
   <div class="checkbox-row">
     <input type="checkbox" id="bypass" ${initBypass ? 'checked' : ''} />
     <label for="bypass">Skip permissions</label>
@@ -260,6 +270,7 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
     const nameEl = document.getElementById('name');
     const titleEl = document.getElementById('title');
     const folderEl = document.getElementById('folder');
+    const modelEl = document.getElementById('model');
     const stackEl = document.getElementById('stack');
     const colorEl = document.getElementById('color');
     const colorDot = document.getElementById('colorDot');
@@ -351,6 +362,7 @@ export function showPresetDialog(existing?: Omit<Preset, 'id'>, mode?: 'new' | '
         shellTabCount: count,
         shellTabNames: names,
         stackId: stackEl && stackEl.value ? stackEl.value : undefined,
+        model: modelEl.value,
       });
     }
 

@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import { app, ipcMain, Menu, BrowserWindow, screen, dialog, shell, net } from 'electron'
+import { app, ipcMain, Menu, BrowserWindow, screen, dialog, shell, net, clipboard, globalShortcut, Notification } from 'electron'
 import { registerIpcHandlers, startSessionMonitor, stopSessionMonitor, resetAndBroadcastDailyTokens } from './ipc/handlers'
 import { startHookServer, stopHookServer } from './services/hook-server'
 import { installHooks, uninstallHooks } from './services/hook-installer'
@@ -37,6 +37,51 @@ import { SESSION_COLORS } from '@shared/constants/colors'
 // Set app name before anything else — shows "Carapace" in Dock tooltip and menu bar
 app.name = 'Carapace'
 import { setDockIcon, resetDockIcon, getOrbIcon } from './services/icon-generator'
+import { queueDeepLink, flushDeepLinks, startReviewFlow, startQuickReview, editQuickPrompt } from './services/deep-link'
+import { extractPrUrl, type ParsedPr } from './services/pr-resolver'
+import { installReviewService } from './services/service-installer'
+
+/** Runs an action with the PR link on the clipboard, complaining if there isn't one. */
+function withClipboardPr(action: (pr: ParsedPr) => void): void {
+  const pr = extractPrUrl(clipboard.readText())
+  if (!pr) {
+    dialog.showErrorBox(
+      'No pull request on the clipboard',
+      'Copy a GitHub pull request link first, e.g.\nhttps://github.com/owner/repo/pull/123'
+    )
+    return
+  }
+  action(pr)
+}
+
+// --- carapace:// deep links -------------------------------------------------
+// Registered at module scope, above whenReady(), on purpose: when a link cold-launches the
+// app macOS fires 'open-url' before the app is ready, and a listener added later misses it.
+// queueDeepLink() buffers until flushDeepLinks() runs at the end of whenReady().
+//
+// The scheme itself comes from CFBundleURLTypes (package.json build.protocols) — macOS can't
+// register it at runtime, so deep links only work in the packaged app, not `npm run dev`.
+// Use the orb's "Review PR from Clipboard" item to exercise this flow from source.
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  queueDeepLink(url)
+})
+
+app.setAsDefaultProtocolClient('carapace')
+
+// macOS handles single-instance for LaunchServices launches but not command-line ones.
+// Exit hard rather than app.quit() — quitting fires 'before-quit', and this process would
+// then run uninstallHooks() and tear down the hooks belonging to the instance that's running.
+if (!app.requestSingleInstanceLock()) {
+  process.exit(0)
+}
+
+app.on('second-instance', (_event, argv) => {
+  const link = argv.find(arg => arg.startsWith('carapace://'))
+  if (link) queueDeepLink(link)
+  const orb = getOrbWindow()
+  if (orb && !orb.isDestroyed()) orb.show()
+})
 
 const GITHUB_REPO = 'customink/Carapace'
 const CURRENT_VERSION = require('../../package.json').version as string
@@ -114,6 +159,30 @@ app.whenReady().then(() => {
   startScheduler()
   startHookServer()
   installHooks()
+
+  // Right-click a PR link anywhere -> Services -> "Review in Carapace"
+  installReviewService()
+
+  // Backup for apps that don't surface the Services menu: copy a PR link, then press these.
+  // ⌥⌘R opens the dialog, ⇧⌥⌘R runs the quick preset straight away.
+  const shortcuts: [string, (pr: ParsedPr) => void][] = [
+    ['Alt+Command+R', pr => void startReviewFlow(pr)],
+    ['Shift+Alt+Command+R', pr => void startQuickReview(pr)],
+  ]
+  for (const [accelerator, action] of shortcuts) {
+    const ok = globalShortcut.register(accelerator, () => {
+      const pr = extractPrUrl(clipboard.readText())
+      if (!pr) {
+        new Notification({
+          title: 'Carapace',
+          body: 'Copy a GitHub pull request link first, then press the shortcut again.',
+        }).show()
+        return
+      }
+      action(pr)
+    })
+    if (!ok) console.warn(`[shortcut] ${accelerator} is already taken — hotkey unavailable`)
+  }
 
   // Play ding and notify orb when a terminal needs attention
   ptyManager.onAttention((pid) => {
@@ -195,7 +264,7 @@ app.whenReady().then(() => {
             shellTabNames = []
             for (let i = 0; i < count; i++) shellTabNames.push(preset.shellTabNames[i] || '')
           }
-          spawnClaudeSession(preset.bypass, preset.title || undefined, preset.folder || undefined, preset.color || undefined, preset.shellTab || (shellTabNames && shellTabNames.length > 0), undefined, undefined, shellTabNames)
+          spawnClaudeSession(preset.bypass, preset.title || undefined, preset.folder || undefined, preset.color || undefined, preset.shellTab || (shellTabNames && shellTabNames.length > 0), undefined, undefined, shellTabNames, undefined, undefined, undefined, preset.model || undefined)
         } else {
           spawnClaudeSession(false)
         }
@@ -556,8 +625,20 @@ app.whenReady().then(() => {
         label: 'New Session with Options...',
         click: async () => {
           const opts = await showSessionOptionsDialog()
-          if (opts) spawnClaudeSession(opts.bypass, opts.title || undefined, opts.folder || undefined, opts.color || undefined, opts.shellTab)
+          if (opts) spawnClaudeSession(opts.bypass, opts.title || undefined, opts.folder || undefined, opts.color || undefined, opts.shellTab, undefined, undefined, undefined, undefined, undefined, undefined, opts.model || undefined)
         }
+      },
+      {
+        label: 'Review PR from Clipboard...',
+        click: () => withClipboardPr(pr => void startReviewFlow(pr))
+      },
+      {
+        label: 'Quick Review PR from Clipboard',
+        click: () => withClipboardPr(pr => void startQuickReview(pr))
+      },
+      {
+        label: 'Edit Quick Review Prompt...',
+        click: () => void editQuickPrompt()
       },
       (() => {
         const presets = loadPresets()
@@ -608,6 +689,10 @@ app.whenReady().then(() => {
                   undefined, // no existing ptyId
                   undefined, // no label
                   shellTabNames,
+                  undefined, // not background
+                  undefined, // no resume
+                  undefined, // no extra dirs
+                  preset.model || undefined,
                 )
               }
             })),
@@ -637,6 +722,7 @@ app.whenReady().then(() => {
                         shellTabCount: preset.shellTabCount,
                         shellTabNames: preset.shellTabNames,
                         stackId: preset.stackId,
+                        model: preset.model,
                       })
                       if (result) updatePreset(preset.id, result)
                     }
@@ -1118,6 +1204,9 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (!getOrbWindow()) createOrbWindow()
   })
+
+  // Replay any deep link that launched the app, now that the windows exist
+  flushDeepLinks()
 })
 
 app.on('window-all-closed', () => {
@@ -1127,6 +1216,9 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  globalShortcut.unregisterAll()
+  // The Services entry is deliberately left installed — right-clicking a PR link is what
+  // launches Carapace when it isn't running.
   uninstallHooks()
   stopHookServer()
   stopSessionMonitor()
