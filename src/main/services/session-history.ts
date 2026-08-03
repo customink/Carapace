@@ -5,7 +5,7 @@ import * as os from 'os'
 const HISTORY_DIR = path.join(os.homedir(), '.claude', 'usage-data')
 const HISTORY_FILE = path.join(HISTORY_DIR, 'carapace-session-history.json')
 const NOTES_DIR = path.join(HISTORY_DIR, 'session-notes')
-const MAX_ENTRIES = 12
+const MAX_ENTRIES = 50
 
 export interface SessionHistoryEntry {
   title: string
