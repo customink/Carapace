@@ -4,6 +4,24 @@ import type { IPty } from 'node-pty'
 import { updateHistoryEntry } from './session-history'
 import { isValidModelId } from '@shared/constants/models'
 
+// Markers a nested/tool-spawned Claude Code process sets — leak in when Carapace itself is launched from a Claude Code shell.
+const CLAUDE_CODE_NESTING_ENV_KEYS = [
+  'CLAUDECODE',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_BRIDGE_SESSION_ID',
+  'CLAUDE_CODE_REMOTE_SESSION_ID',
+  'CLAUDE_CODE_MESSAGING_SOCKET',
+  'CLAUDE_CODE_MESSAGING_TOKEN',
+  'CLAUDE_PID',
+  'AI_AGENT',
+]
+
+function stripClaudeCodeNestingEnv(env: Record<string, string>): void {
+  for (const key of CLAUDE_CODE_NESTING_ENV_KEYS) delete env[key]
+}
+
 export interface PtySession {
   ptyId: string
   pty: IPty
@@ -213,7 +231,7 @@ export function createPty(options: {
 
   // Build clean env: inherit process.env but remove Claude Code nesting detection
   const env = { ...process.env } as Record<string, string>
-  delete env['CLAUDECODE']
+  stripClaudeCodeNestingEnv(env)
   env['TERM'] = 'xterm-256color'
   env['COLORTERM'] = 'truecolor'
 
@@ -380,6 +398,7 @@ export function createShellPty(options: {
   const shell = process.env.SHELL || '/bin/zsh'
 
   const env = { ...process.env } as Record<string, string>
+  stripClaudeCodeNestingEnv(env)
   env['TERM'] = 'xterm-256color'
   env['COLORTERM'] = 'truecolor'
 
