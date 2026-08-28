@@ -83,19 +83,51 @@ function tintedBackground(hex: string, tint = 0.08): string {
 }
 
 function setupCopyPaste(terminal: Terminal, sendData: (data: string) => void) {
-  // xterm.js terminal buffer lines are padded to the full column width with spaces.
-  // getSelection() includes all that trailing whitespace, which ruins pasted formatting.
-  // We trim trailing whitespace from each line while preserving blank lines.
+  // Claude Code's CLI wraps its own prose (hanging-indent bullets, etc.) with hard
+  // newlines rather than relying on the terminal's native autowrap, so xterm's
+  // isWrapped flag is false for those rows. Copying them verbatim produces a
+  // ragged mess when pasted elsewhere (e.g. Slack). We reflow: a row whose text
+  // comes within word-wrap slack of the row's full width is treated as a
+  // soft-wrapped continuation and joined with a space; everything else keeps a
+  // real newline. Word-wrap breaks at the last space that fits, so a wrapped
+  // row essentially never lands exactly on the last column — it falls short by
+  // up to about one word's width, hence the tolerance rather than an exact match.
   function getCleanSelection(): string {
-    const selection = terminal.getSelection()
-    if (!selection) return ''
-    return selection
-      .replace(/\r\n/g, '\n')
-      .replace(/\r/g, '\n')
-      .split('\n')
-      .map(line => line.trimEnd())
-      .join('\n')
-      .trimEnd()
+    const pos = terminal.getSelectionPosition()
+    if (!pos) return ''
+
+    const buf = terminal.buffer.active
+    const rows: { text: string; isWrapped: boolean; full: boolean }[] = []
+
+    for (let y = pos.start.y; y <= pos.end.y; y++) {
+      const line = buf.getLine(y)
+      if (!line) continue
+      const startCol = y === pos.start.y ? pos.start.x : 0
+      const endCol = y === pos.end.y ? pos.end.x : line.length
+      const text = line.translateToString(true, startCol, endCol)
+      const spanWidth = endCol - startCol
+      const slack = Math.min(24, Math.ceil(spanWidth * 0.25))
+      const full = endCol === line.length && spanWidth - text.length <= slack
+      rows.push({ text, isWrapped: line.isWrapped, full })
+    }
+
+    if (rows.length === 0) return ''
+
+    let result = rows[0].text
+    for (let i = 1; i < rows.length; i++) {
+      const prev = rows[i - 1]
+      const curr = rows[i]
+      if (curr.isWrapped) {
+        // Genuine terminal-native wrap: no character (including spaces) was lost.
+        result += curr.text
+      } else if (prev.full && curr.text.length > 0) {
+        result += ' ' + curr.text
+      } else {
+        result += '\n' + curr.text
+      }
+    }
+
+    return result.trimEnd()
   }
 
   terminal.attachCustomKeyEventHandler((event) => {
