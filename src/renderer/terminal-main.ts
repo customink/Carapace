@@ -1,6 +1,6 @@
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { WebLinksAddon } from '@xterm/addon-web-links'
+import { createWrappedLinkProvider } from './wrapped-links'
 import '@xterm/xterm/css/xterm.css'
 import { SNIPPET_ICONS } from '@shared/constants/snippet-icons'
 import type { Snippet } from '@shared/types/snippet'
@@ -423,7 +423,7 @@ async function init() {
   })
 
   claudeTerminal.loadAddon(claudeFit)
-  claudeTerminal.loadAddon(new WebLinksAddon((_e, url) => window.carapaceTerminal.openExternal(url)))
+  claudeTerminal.registerLinkProvider(createWrappedLinkProvider(claudeTerminal, window.carapaceTerminal.openExternal))
   claudeTerminal.open(document.getElementById('terminal')!)
   claudeFit.fit()
 
@@ -521,7 +521,7 @@ async function init() {
       linkHandler,
     })
     terminal.loadAddon(fitAddon)
-    terminal.loadAddon(new WebLinksAddon((_e, url) => window.carapaceTerminal.openExternal(url)))
+    terminal.registerLinkProvider(createWrappedLinkProvider(terminal, window.carapaceTerminal.openExternal))
     terminal.open(paneEl)
     setupCopyPaste(terminal, (data) => window.carapaceTerminal.shellSendData(shellPtyId, data))
     setupContextMenu(terminal, paneEl)
