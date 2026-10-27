@@ -20,7 +20,7 @@
     "chokidar": "^5.0.0",
     "date-fns": "^4.1.0",
     "framer-motion": "^12.35.2",
-    "js-yaml": "^4.1.1",
+    "js-yaml": "^4.3.0",
     "node-pty": "^1.1.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
@@ -34,12 +34,12 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.4",
-    "electron": "^40.8.0",
+    "electron": "^40.8.5",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "tailwindcss": "^4.2.1",
     "typescript": "^5.9.3",
-    "vite": "^7.3.1"
+    "vite": "^7.3.5"
   },
   "build": {
     "appId": "com.carapace.app",
