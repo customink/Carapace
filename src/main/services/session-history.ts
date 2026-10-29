@@ -1,6 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import { PROJECTS_DIR } from '@shared/constants/paths'
 
 const HISTORY_DIR = path.join(os.homedir(), '.claude', 'usage-data')
 const HISTORY_FILE = path.join(HISTORY_DIR, 'carapace-session-history.json')
@@ -56,6 +57,39 @@ export function updateHistoryEntry(ptyId: string, updates: { label?: string; col
   if (updates.shellTabNames !== undefined) entry.shellTabNames = updates.shellTabNames
   if (updates.claudeSessionId !== undefined) entry.claudeSessionId = updates.claudeSessionId
   saveHistory(entries)
+}
+
+const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Claude Code session IDs are UUIDs. Shape-checked because they're written into a shell command line. */
+export function isValidSessionId(id: string | undefined): id is string {
+  return !!id && SESSION_ID_RE.test(id)
+}
+
+/**
+ * True if a top-level transcript `<project>/<sessionId>.jsonl` exists for this ID.
+ * Scans every project dir rather than re-deriving the folder encoding, which
+ * Claude Code applies to more characters than just `/`.
+ */
+export function transcriptExists(sessionId: string): boolean {
+  try {
+    for (const dir of fs.readdirSync(PROJECTS_DIR)) {
+      if (fs.existsSync(path.join(PROJECTS_DIR, dir, `${sessionId}.jsonl`))) return true
+    }
+  } catch { /* projects dir missing */ }
+  return false
+}
+
+/**
+ * True if `transcriptPath` is the main transcript for `sessionId` — directly inside a
+ * project dir. Subagent / teammate transcripts live deeper (`<sid>/subagents/*.jsonl`)
+ * and must never be mistaken for the session's own conversation.
+ */
+export function isMainTranscript(transcriptPath: string | undefined, sessionId: string): boolean {
+  if (!transcriptPath) return false
+  const resolved = path.resolve(transcriptPath)
+  return path.basename(resolved) === `${sessionId}.jsonl` &&
+    path.dirname(path.dirname(resolved)) === path.resolve(PROJECTS_DIR)
 }
 
 /** Load notes content for a given ptyId */

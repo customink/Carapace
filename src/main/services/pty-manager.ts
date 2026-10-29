@@ -56,7 +56,7 @@ export interface PtySession {
   onDataInterceptor?: ((data: string) => void) | null
   /** If true, bring window to front on first end_turn (scheduled session) */
   scheduledBringToFront?: boolean
-  /** Claude Code conversation ID (from JSONL filename) for --resume */
+  /** Claude Code conversation ID for --resume. Set at spawn; updated by the SessionStart hook on /clear or /resume */
   claudeSessionId?: string
 }
 
@@ -209,7 +209,8 @@ export function createPty(options: {
   cols: number
   rows: number
   title?: string
-  resumeSessionId?: string  // Claude Code session ID to resume via --resume
+  claudeSessionId: string   // Claude Code conversation ID (UUID, shape-checked by the caller)
+  resume: boolean           // true → --resume <id>, false → --session-id <id> for a new conversation
   addDirs?: string[]        // extra directories to add to Claude Code context via --add-dir
   model?: string            // alias ('opus') or full ID ('claude-opus-5') via --model
 }): PtySession {
@@ -221,7 +222,7 @@ export function createPty(options: {
   flags += ' --teammate-mode in-process'
   // Shape-checked rather than quoted: this is written into a shell command line
   if (options.model && isValidModelId(options.model)) flags += ` --model ${options.model}`
-  if (options.resumeSessionId) flags += ` --resume ${options.resumeSessionId}`
+  flags += options.resume ? ` --resume ${options.claudeSessionId}` : ` --session-id ${options.claudeSessionId}`
   if (options.addDirs?.length) {
     for (const dir of options.addDirs) flags += ` --add-dir "${dir}"`
   }
@@ -234,6 +235,9 @@ export function createPty(options: {
   stripClaudeCodeNestingEnv(env)
   env['TERM'] = 'xterm-256color'
   env['COLORTERM'] = 'truecolor'
+  // Inherited by Claude Code's hook commands, so hook-server can map a hook back to
+  // this exact PTY instead of guessing from the project folder.
+  env['CARAPACE_PTY_ID'] = options.ptyId
 
   // Use interactive login shell, then send the exec command after shell init
   const pty = nodePty.spawn(shell, ['-l', '-i'], {
@@ -264,6 +268,7 @@ export function createPty(options: {
     isThinking: false,
     thinkingGeneration: 0,
     inputBuffer: '',
+    claudeSessionId: options.claudeSessionId,
   }
 
   sessions.set(options.ptyId, session)

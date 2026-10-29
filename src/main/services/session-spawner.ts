@@ -17,12 +17,13 @@ import { addPreset } from './preset-store'
 import { exportContext } from './context-share'
 import { setDockIcon } from './icon-generator'
 import { IPC_CHANNELS } from '../ipc/channels'
-import { recordSession, updateHistoryEntry } from './session-history'
+import { recordSession, updateHistoryEntry, isValidSessionId, transcriptExists } from './session-history'
 import { discoverSessionsAsync, invalidateCache } from './session-discovery'
 import * as ptyManager from './pty-manager'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import { randomUUID } from 'crypto'
 
 let spawnCount = 0
 
@@ -38,6 +39,12 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
 
   const displayTitle = title || 'Claude Code'
 
+  // Decide the Claude Code conversation ID up front so it never has to be guessed
+  // from JSONL activity. Resume only if the transcript still exists — otherwise
+  // `--resume` fails with "No conversation found" and the session dies on launch.
+  const resume = isValidSessionId(resumeSessionId) && transcriptExists(resumeSessionId)
+  const claudeSessionId = resume ? resumeSessionId! : randomUUID()
+
   // Record in history for "Revive Recent Session"
   recordSession({
     title: title || '',
@@ -47,6 +54,7 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
     ptyId,
     startTime: new Date().toISOString(),
     color,
+    claudeSessionId,
   })
 
   // Ensure dock is visible so terminal windows can show, with colored orb icon
@@ -68,7 +76,8 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
       cols: 80,
       rows: 24,
       title,
-      resumeSessionId,
+      claudeSessionId,
+      resume,
       addDirs,
       model,
     })

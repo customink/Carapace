@@ -12,7 +12,6 @@ import { computeDetailedCost } from '../services/cost-calculator'
 import { PROJECTS_DIR } from '@shared/constants/paths'
 import { formatModelName } from '@shared/utils/format'
 import * as ptyManager from '../services/pty-manager'
-import { updateHistoryEntry } from '../services/session-history'
 import { loadDailyTokens, recordSessionData, getDailyTokens, getDailySessionBreakdown, resetDailyTokens } from '../services/daily-tokens-store'
 import type { SessionUpdate } from '../services/session-monitor'
 import type { SessionState } from '@shared/types/session'
@@ -193,9 +192,8 @@ export function startSessionMonitor(): void {
     // doesn't erase tokens that were already consumed.
     const total = update.parsed.metrics.totalTokens
     if (update.sessionId && total > 0) {
-      // Resolve color + name from any PTY session in the same project dir
-      const ptySess = ptyManager.getByEncodedCwd(update.projectEncoded)
-      const matchedPty = ptySess.find(p => p.claudeSessionId === update.sessionId) || ptySess[0]
+      // Resolve color + name from the PTY that owns this conversation (if any)
+      const matchedPty = ptyManager.getAllSessions().find(p => p.claudeSessionId === update.sessionId)
       const color = matchedPty?.color
       const name = matchedPty?.title || undefined
 
@@ -225,15 +223,10 @@ export function startSessionMonitor(): void {
 
     const ptySessions = ptyManager.getByEncodedCwd(update.projectEncoded)
 
-    // Track the Claude Code session ID for conversation resume.
-    // Save to history immediately so it persists even if the app crashes or
-    // the session is closed via context menu (bypassing the window close handler).
-    for (const ps of ptySessions) {
-      if (!ps.claudeSessionId && update.sessionId) {
-        ps.claudeSessionId = update.sessionId
-        updateHistoryEntry(ps.ptyId, { claudeSessionId: update.sessionId })
-      }
-    }
+    // The Claude Code session ID is NOT inferred here. It's assigned at spawn
+    // (--session-id / --resume) and kept current by the SessionStart hook. Guessing
+    // from "a JSONL in this folder changed" handed one conversation to every
+    // session sharing the folder, so revive reopened the wrong conversation.
 
     if (count > prevCount && hasPrevious) {
       // end_turn completion detected — Claude is done, fire bell + clear spinner
