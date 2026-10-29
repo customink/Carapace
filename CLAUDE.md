@@ -202,9 +202,12 @@ forwards quoted message text, it must go through the dialog.
 **Deep link gotchas**:
 - `app.on('open-url')` is registered at **module scope, above `whenReady()`** — on a cold
   launch macOS fires it before the app is ready and a later listener misses it entirely.
-- macOS reads the scheme from `CFBundleURLTypes` (`build.protocols` in package.json);
-  `setAsDefaultProtocolClient` alone is a no-op there. **Deep links do not work from source** —
-  test against `npm run dist`. Use the orb's "Review PR from Clipboard..." item in dev.
+- macOS reads the scheme from `CFBundleURLTypes` (`build.protocols` in package.json).
+  `setAsDefaultProtocolClient` is **not** a no-op: from source it binds the scheme to the generic
+  `com.github.electron` bundle ID, and macOS then opens `carapace://` links in some other
+  project's `node_modules/electron/.../Electron.app`. That's why it's gated on `app.isPackaged`.
+  **Deep links do not work from source** — test against `npm run dist`. Use the orb's
+  "Review PR from Clipboard..." item in dev.
 - A second instance calls `process.exit(0)`, not `app.quit()` — quitting would fire
   `before-quit` and run `uninstallHooks()`, breaking the instance that's already running.
 - **Any window opened from outside the app must call `app.focus({ steal: true })`.** The dock

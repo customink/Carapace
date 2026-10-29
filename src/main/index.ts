@@ -67,7 +67,10 @@ app.on('open-url', (event, url) => {
   queueDeepLink(url)
 })
 
-app.setAsDefaultProtocolClient('carapace')
+// Packaged only: from source the running bundle is the generic `com.github.electron`, which
+// every project's node_modules Electron.app shares. Registering it would hijack the scheme —
+// macOS then opens carapace:// links in whichever stray Electron.app it resolves that ID to.
+if (app.isPackaged) app.setAsDefaultProtocolClient('carapace')
 
 // macOS handles single-instance for LaunchServices launches but not command-line ones.
 // Exit hard rather than app.quit() — quitting fires 'before-quit', and this process would
