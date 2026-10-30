@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, app, shell, Menu } from 'electron'
+import { ipcMain, BrowserWindow, app, shell, Menu, dialog } from 'electron'
 import { exec } from 'child_process'
 import { SESSION_COLORS } from '@shared/constants/colors'
 import { createTerminalWindow } from '../windows/terminal'
@@ -17,7 +17,7 @@ import { addPreset } from './preset-store'
 import { exportContext } from './context-share'
 import { setDockIcon } from './icon-generator'
 import { IPC_CHANNELS } from '../ipc/channels'
-import { recordSession, updateHistoryEntry, isValidSessionId, transcriptExists } from './session-history'
+import { recordSession, updateHistoryEntry, isValidSessionId, transcriptExists, lastExistingCwd } from './session-history'
 import { discoverSessionsAsync, invalidateCache } from './session-discovery'
 import * as ptyManager from './pty-manager'
 import * as fs from 'fs'
@@ -44,6 +44,21 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
   // `--resume` fails with "No conversation found" and the session dies on launch.
   const resume = isValidSessionId(resumeSessionId) && transcriptExists(resumeSessionId)
   const claudeSessionId = resume ? resumeSessionId! : randomUUID()
+
+  // A missing working directory makes the PTY exit instantly — the window just flashes
+  // and closes. Common on revive after the project folder was renamed. Recover the
+  // folder the conversation last worked in; failing that, start in home and say why.
+  if (cwd && !fs.existsSync(cwd)) {
+    const missing = cwd
+    cwd = (resume && lastExistingCwd(claudeSessionId)) || undefined
+    if (!cwd) {
+      dialog.showMessageBox({
+        type: 'warning',
+        message: 'Session folder not found',
+        detail: `${missing} no longer exists, so "${displayTitle}" was started in your home folder.`,
+      })
+    }
+  }
 
   // Record in history for "Revive Recent Session"
   recordSession({

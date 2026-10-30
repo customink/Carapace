@@ -72,12 +72,55 @@ export function isValidSessionId(id: string | undefined): id is string {
  * Claude Code applies to more characters than just `/`.
  */
 export function transcriptExists(sessionId: string): boolean {
+  return findTranscript(sessionId) !== null
+}
+
+function findTranscript(sessionId: string): string | null {
   try {
     for (const dir of fs.readdirSync(PROJECTS_DIR)) {
-      if (fs.existsSync(path.join(PROJECTS_DIR, dir, `${sessionId}.jsonl`))) return true
+      const file = path.join(PROJECTS_DIR, dir, `${sessionId}.jsonl`)
+      if (fs.existsSync(file)) return file
     }
   } catch { /* projects dir missing */ }
-  return false
+  return null
+}
+
+const TRANSCRIPT_TAIL_BYTES = 2 * 1024 * 1024
+
+/**
+ * The most recent working directory recorded in a conversation's transcript that still
+ * exists — recovers a revive whose saved folder was renamed or moved (often by the
+ * session itself). Only the tail is read: long-running transcripts reach 100MB+.
+ * Temp dirs (e.g. a session's scratchpad) are skipped.
+ */
+export function lastExistingCwd(sessionId: string): string | null {
+  const file = findTranscript(sessionId)
+  if (!file) return null
+  let tail: string
+  try {
+    const fd = fs.openSync(file, 'r')
+    try {
+      const size = fs.fstatSync(fd).size
+      const len = Math.min(size, TRANSCRIPT_TAIL_BYTES)
+      const buf = Buffer.alloc(len)
+      fs.readSync(fd, buf, 0, len, size - len)
+      tail = buf.toString('utf-8')
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return null
+  }
+  const cwds = [...tail.matchAll(/"cwd":"((?:[^"\\]|\\.)*)"/g)].map(m => {
+    try { return JSON.parse(`"${m[1]}"`) as string } catch { return null }
+  })
+  const tmp = fs.realpathSync(os.tmpdir())
+  for (let i = cwds.length - 1; i >= 0; i--) {
+    const cwd = cwds[i]
+    if (!cwd || cwd.startsWith('/private/tmp') || cwd.startsWith('/tmp') || cwd.startsWith(tmp)) continue
+    if (fs.existsSync(cwd)) return cwd
+  }
+  return null
 }
 
 /**
