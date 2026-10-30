@@ -4,6 +4,7 @@ import * as os from 'os'
 import { app, ipcMain, Menu, BrowserWindow, screen, dialog, shell, net, clipboard, globalShortcut, Notification } from 'electron'
 import { registerIpcHandlers, startSessionMonitor, stopSessionMonitor, resetAndBroadcastDailyTokens } from './ipc/handlers'
 import { startHookServer, stopHookServer } from './services/hook-server'
+import { prepareUpdate, launchPendingInstall, updateBlocker, pickMacZip, type ReleaseAsset } from './services/self-updater'
 import { installHooks, uninstallHooks } from './services/hook-installer'
 import { IPC_CHANNELS } from './ipc/channels'
 import { createOrbWindow, getOrbWindow } from './windows/orb'
@@ -89,17 +90,34 @@ app.on('second-instance', (_event, argv) => {
 const GITHUB_REPO = 'customink/Carapace'
 const CURRENT_VERSION = require('../../package.json').version as string
 
-/** Check GitHub for a newer release and prompt to download */
+/** -1 / 0 / 1 comparing dotted numeric versions ("0.17.10" > "0.17.9") */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(n => parseInt(n, 10) || 0)
+  const pb = b.split('.').map(n => parseInt(n, 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d !== 0) return Math.sign(d)
+  }
+  return 0
+}
+
+let updateInProgress = false
+
+/** Check GitHub for a newer release; offer to install it in place or open the release page */
 async function checkForUpdates(): Promise<void> {
+  if (updateInProgress) {
+    dialog.showMessageBox({ type: 'info', message: 'An update is already downloading.', buttons: ['OK'] })
+    return
+  }
   try {
     const response = await net.fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
       headers: { 'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Carapace' },
     })
     if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const release = await response.json() as { tag_name: string; html_url: string; body?: string }
+    const release = await response.json() as { tag_name: string; html_url: string; body?: string; assets?: ReleaseAsset[] }
 
     const latest = release.tag_name.replace(/^v/, '')
-    if (latest === CURRENT_VERSION) {
+    if (compareVersions(latest, CURRENT_VERSION) <= 0) {
       dialog.showMessageBox({
         type: 'info',
         title: 'Up to Date',
@@ -109,17 +127,50 @@ async function checkForUpdates(): Promise<void> {
       return
     }
 
+    const asset = pickMacZip(release.assets || [])
+    const blocker = asset ? updateBlocker() : 'This release has no macOS .zip for this Mac.'
+    const sessionCount = ptyManager.getAllSessions().length
+    const restartNote = sessionCount > 0
+      ? `\n\nRestarting closes ${sessionCount} open session${sessionCount === 1 ? '' : 's'} — revive ${sessionCount === 1 ? 'it' : 'them'} afterwards from Revive Recent Session.`
+      : ''
+
     const { response: btn } = await dialog.showMessageBox({
       type: 'info',
       title: 'Update Available',
       message: `Carapace v${latest} is available (you have v${CURRENT_VERSION}).`,
-      detail: release.body ? release.body.slice(0, 500) : '',
-      buttons: ['Download', 'Later'],
+      detail: (release.body ? release.body.slice(0, 500) : '') +
+        (blocker ? `\n\nCan't update in place: ${blocker}` : restartNote),
+      buttons: blocker ? ['View Release', 'Later'] : ['Update and Restart', 'View Release', 'Later'],
       defaultId: 0,
+      cancelId: blocker ? 1 : 2,
     })
-    if (btn === 0) {
-      shell.openExternal(release.html_url)
+    if (blocker) {
+      if (btn === 0) shell.openExternal(release.html_url)
+      return
     }
+    if (btn === 1) shell.openExternal(release.html_url)
+    if (btn !== 0) return
+
+    updateInProgress = true
+    new Notification({ title: 'Updating Carapace', body: `Downloading v${latest}… Carapace will restart when it's ready.` }).show()
+    try {
+      await prepareUpdate(asset!, latest)
+    } catch (err) {
+      updateInProgress = false
+      const { response: retryBtn } = await dialog.showMessageBox({
+        type: 'error',
+        title: 'Update Failed',
+        message: `Could not update to v${latest}: ${(err as Error).message}`,
+        detail: 'Nothing was changed. You can download the release manually instead.',
+        buttons: ['View Release', 'OK'],
+        defaultId: 1,
+      })
+      if (retryBtn === 0) shell.openExternal(release.html_url)
+      return
+    }
+    // The install script waits for this process to exit, swaps the bundle, and relaunches
+    launchPendingInstall()
+    app.quit()
   } catch (err) {
     dialog.showMessageBox({
       type: 'error',
