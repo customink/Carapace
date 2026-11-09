@@ -59,6 +59,38 @@ export function updateHistoryEntry(ptyId: string, updates: { label?: string; col
   saveHistory(entries)
 }
 
+// ─── Reopen after update ───
+// "Update and Restart" can reopen the sessions that were open: their ptyIds are written here
+// before quitting, and the relaunched app revives the matching history entries once.
+const REOPEN_FILE = path.join(HISTORY_DIR, 'carapace-reopen-after-update.json')
+// An update that never relaunched shouldn't reopen sessions on some later, unrelated launch
+const REOPEN_MAX_AGE_MS = 15 * 60 * 1000
+
+export function saveReopenList(ptyIds: string[]): void {
+  try {
+    ensureDir()
+    fs.writeFileSync(REOPEN_FILE, JSON.stringify({ ptyIds, savedAt: Date.now() }), 'utf-8')
+  } catch { /* non-fatal: sessions can still be revived by hand */ }
+}
+
+/** History entries to reopen after an update, oldest first. Consumes the list. */
+export function takeReopenList(): SessionHistoryEntry[] {
+  let data: { ptyIds?: unknown; savedAt?: unknown }
+  try {
+    data = JSON.parse(fs.readFileSync(REOPEN_FILE, 'utf-8'))
+  } catch {
+    return []
+  } finally {
+    try { fs.rmSync(REOPEN_FILE, { force: true }) } catch { /* ignore */ }
+  }
+  if (typeof data.savedAt !== 'number' || Date.now() - data.savedAt > REOPEN_MAX_AGE_MS) return []
+  if (!Array.isArray(data.ptyIds)) return []
+  const history = loadHistory()
+  return data.ptyIds
+    .map(id => history.find(e => e.ptyId === id))
+    .filter((e): e is SessionHistoryEntry => !!e)
+}
+
 const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** Claude Code session IDs are UUIDs. Shape-checked because they're written into a shell command line. */

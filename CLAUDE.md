@@ -328,7 +328,9 @@ Defined in `ipc/channels.ts`. Key patterns:
   offers **Update and Restart** (`services/self-updater.ts`): downloads the release `.zip`,
   checks size + GitHub's sha256 `digest`, verifies bundle ID / version / `codesign`, then a
   detached script swaps the bundle after the app quits and relaunches it. Electron's
-  `autoUpdater` can't be used — Squirrel.Mac rejects ad-hoc signed builds. **Releases must keep
+  `autoUpdater` can't be used — Squirrel.Mac rejects ad-hoc signed builds. The dialog's
+  "Reopen my open sessions" checkbox writes their ptyIds to `carapace-reopen-after-update.json`
+  just before quitting; the relaunched app revives those history entries once (15 min expiry). **Releases must keep
   attaching the `.zip`**, or older installs can't update in place.
 - GitHub releases at `customink/Carapace` — latest is v0.6.0
 - `scripts/fix-gatekeeper.sh` helper for `xattr -cr`

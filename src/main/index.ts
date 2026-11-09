@@ -14,7 +14,7 @@ import { spawnClaudeSession, registerTerminalIpc } from './services/session-spaw
 import { focusSessionTerminal } from './services/terminal-focus'
 import * as ptyManager from './services/pty-manager'
 import { showSessionOptionsDialog } from './windows/prompt'
-import { loadHistory, copyNotes, updateHistoryEntry } from './services/session-history'
+import { loadHistory, copyNotes, updateHistoryEntry, saveReopenList, takeReopenList, type SessionHistoryEntry } from './services/session-history'
 import { addPrompt as addPromptToHistory, copyPromptHistory } from './services/prompt-history'
 import { loadSnippets, addSnippet, updateSnippet, deleteSnippet } from './services/snippet-store'
 import { showSnippetDialog } from './windows/snippet-dialog'
@@ -106,6 +106,26 @@ function compareVersions(a: string, b: string): number {
   return 0
 }
 
+/** Reopen a closed session from history: same title/folder/color/tabs, resuming its conversation */
+function reviveHistoryEntry(entry: SessionHistoryEntry): void {
+  // Notes and prompt history are keyed by ptyId, so copy them to the new one before spawning
+  const newPtyId = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  copyNotes(entry.ptyId, newPtyId)
+  copyPromptHistory(entry.ptyId, newPtyId)
+  spawnClaudeSession(
+    entry.bypass,
+    entry.title || undefined,
+    entry.folder || undefined,
+    entry.color || undefined,
+    entry.shellTab || (entry.shellTabNames && entry.shellTabNames.length > 0),
+    newPtyId,
+    entry.label || undefined,
+    entry.shellTabNames || undefined,
+    false, // not background
+    entry.claudeSessionId || undefined, // resume conversation
+  )
+}
+
 let updateInProgress = false
 
 /** Check GitHub for a newer release; offer to install it in place or open the release page */
@@ -135,17 +155,20 @@ async function checkForUpdates(): Promise<void> {
     const asset = pickMacZip(release.assets || [])
     const blocker = asset ? updateBlocker() : 'This release has no macOS .zip for this Mac.'
     const sessionCount = ptyManager.getAllSessions().length
-    const restartNote = sessionCount > 0
-      ? `\n\nRestarting closes ${sessionCount} open session${sessionCount === 1 ? '' : 's'} — revive ${sessionCount === 1 ? 'it' : 'them'} afterwards from Revive Recent Session.`
-      : ''
+    const plural = sessionCount === 1 ? '' : 's'
+    const restartNote = sessionCount > 0 ? `\n\nRestarting closes ${sessionCount} open session${plural}.` : ''
 
-    const { response: btn } = await dialog.showMessageBox({
+    const { response: btn, checkboxChecked: reopenSessions } = await dialog.showMessageBox({
       type: 'info',
       title: 'Update Available',
       message: `Carapace v${latest} is available (you have v${CURRENT_VERSION}).`,
       detail: (release.body ? release.body.slice(0, 500) : '') +
         (blocker ? `\n\nCan't update in place: ${blocker}` : restartNote),
       buttons: blocker ? ['View Release', 'Later'] : ['Update and Restart', 'View Release', 'Later'],
+      ...(!blocker && sessionCount > 0 ? {
+        checkboxLabel: `Reopen my ${sessionCount} open session${plural} after updating`,
+        checkboxChecked: true,
+      } : {}),
       defaultId: 0,
       cancelId: blocker ? 1 : 2,
     })
@@ -173,6 +196,8 @@ async function checkForUpdates(): Promise<void> {
       if (retryBtn === 0) shell.openExternal(release.html_url)
       return
     }
+    // Taken just before quitting, so sessions opened or closed during the download count
+    if (reopenSessions) saveReopenList(ptyManager.getAllSessions().map(s => s.ptyId))
     // The install script waits for this process to exit, swaps the bundle, and relaunches
     launchPendingInstall()
     app.quit()
@@ -990,28 +1015,7 @@ app.whenReady().then(() => {
               : `${prefix}${entry.folder || 'Home'} — ${dateStr} ${timeStr}`
             return {
               label,
-              click: () => {
-                // spawnClaudeSession returns the ptyId indirectly;
-                // we need to copy notes before spawning so the new ptyId gets them.
-                // Since spawnClaudeSession generates the ptyId internally, we pass a
-                // revive callback via a pre-spawn hook approach.
-                // Simpler: spawn, then copy notes using the history's ptyId as source.
-                const newPtyId = `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-                copyNotes(entry.ptyId, newPtyId)
-                copyPromptHistory(entry.ptyId, newPtyId)
-                spawnClaudeSession(
-                  entry.bypass,
-                  entry.title || undefined,
-                  entry.folder || undefined,
-                  entry.color || undefined,
-                  entry.shellTab || (entry.shellTabNames && entry.shellTabNames.length > 0),
-                  newPtyId,
-                  entry.label || undefined,
-                  entry.shellTabNames || undefined,
-                  false, // not background
-                  entry.claudeSessionId || undefined, // resume conversation
-                )
-              }
+              click: () => reviveHistoryEntry(entry),
             }
           })
         }
@@ -1266,6 +1270,9 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (!getOrbWindow()) createOrbWindow()
   })
+
+  // Sessions that were open before "Update and Restart", staggered so the PTYs don't all start at once
+  takeReopenList().forEach((entry, i) => setTimeout(() => reviveHistoryEntry(entry), i * 400))
 
   // Replay any deep link that launched the app, now that the windows exist
   flushDeepLinks()
