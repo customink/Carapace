@@ -1,5 +1,6 @@
 import * as fs from 'fs'
 import { join } from 'path'
+import { IS_TEST_INSTANCE } from '../test-instance'
 import { DAILY_TOKENS_FILE } from '@shared/constants/paths'
 
 // Persists the daily token/cost accumulator independently of JSONL state.
@@ -53,6 +54,8 @@ function ensureDir(): void {
 function persist(): void {
   try {
     ensureDir()
+    // The real instance rewrites this file whole from memory — a test instance would clobber it
+    if (IS_TEST_INSTANCE) return
     fs.writeFileSync(DAILY_TOKENS_FILE, JSON.stringify(store), 'utf-8')
   } catch { /* non-fatal */ }
 }

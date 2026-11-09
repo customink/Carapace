@@ -7,6 +7,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "test-instance": "electron-vite build && CARAPACE_TEST_INSTANCE=1 electron out/main/index.js",
     "typecheck": "tsc --noEmit",
     "postinstall": "electron-rebuild",
     "generate-icon": "node scripts/generate-icon.mjs",

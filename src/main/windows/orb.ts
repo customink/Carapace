@@ -1,3 +1,4 @@
+import { IS_TEST_INSTANCE } from '../test-instance'
 import { BrowserWindow, screen, ipcMain } from 'electron'
 import { join } from 'path'
 
@@ -22,7 +23,8 @@ export function createOrbWindow(): BrowserWindow {
     width: WINDOW_WIDTH,
     height: WINDOW_HEIGHT,
     x: -140,
-    y: -100,
+    // Test instance: start below the real orb instead of exactly on top of it
+    y: IS_TEST_INSTANCE ? 300 : -100,
     transparent: true,
     frame: false,
     alwaysOnTop: true,
