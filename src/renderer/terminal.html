@@ -118,6 +118,149 @@
       color: rgba(255, 255, 255, 0.8);
     }
 
+    /* ─── Conversation link half-pills (top-right of terminal) ─── */
+    #link-pills {
+      position: absolute;
+      top: 10px;
+      right: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      z-index: 110;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    }
+    #link-pills.off-tab { display: none; }
+    .link-group { position: relative; display: none; }
+    .link-group.has-links { display: flex; }
+    .link-pill {
+      width: 30px; height: 26px;
+      border-radius: 13px 0 0 13px;
+      background: var(--pill-bg, rgba(37, 17, 71, 0.85));
+      border: 1px solid var(--pill-border, rgba(124, 58, 237, 0.4));
+      border-right: none;
+      color: var(--pill-fg, rgba(255, 255, 255, 0.92));
+      display: flex; align-items: center; justify-content: center;
+      padding-left: 3px;
+      backdrop-filter: blur(6px);
+      opacity: 0.55;
+      transition: background 0.15s, width 0.15s, opacity 0.15s;
+      cursor: default;
+    }
+    .link-group:hover .link-pill { background: var(--pill-bg-hover, rgba(52, 24, 100, 0.95)); width: 34px; opacity: 1; }
+    /* Flyout sits to the left; padding-right bridges the gap so :hover isn't lost crossing it */
+    .link-flyout {
+      position: absolute;
+      top: 0; right: 100%;
+      padding-right: 6px;
+      display: none;
+    }
+    .link-group:hover .link-flyout { display: block; }
+    .link-panel {
+      min-width: 240px; max-width: 420px;
+      max-height: 320px; overflow-y: auto;
+      background: rgba(18, 18, 22, 0.94);
+      border: 1px solid var(--pill-border, rgba(124, 58, 237, 0.5));
+      border-radius: 8px;
+      padding: 4px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(10px);
+    }
+    .link-panel-title {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.4);
+      padding: 4px 8px 6px;
+    }
+    .link-row {
+      display: flex; align-items: center; gap: 2px;
+      border-radius: 5px;
+    }
+    .link-row:hover { background: rgba(255, 255, 255, 0.06); }
+    .link-label {
+      flex: 1; min-width: 0;
+      border: none; background: transparent;
+      color: rgba(255, 255, 255, 0.85);
+      font: inherit; font-size: 12px; text-align: left;
+      padding: 6px 8px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      cursor: pointer;
+    }
+    .link-label:hover { color: #fff; }
+    .link-label.has-title { display: flex; align-items: center; gap: 8px; width: 340px; }
+    .link-key { flex-shrink: 0; }
+    /* Jira title: scrolls back and forth when it doesn't fit (distance/duration set from JS) */
+    .link-title {
+      flex: 1; min-width: 0;
+      overflow: hidden;
+      color: rgba(255, 255, 255, 0.5);
+      -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 6px, #000 calc(100% - 10px), transparent 100%);
+    }
+    .link-title-inner { display: inline-block; padding: 0 6px; }
+    .link-title.scroll .link-title-inner {
+      animation: link-marquee var(--scroll-duration, 6s) ease-in-out infinite alternate;
+    }
+    @keyframes link-marquee {
+      0%, 12% { transform: translateX(0); }
+      88%, 100% { transform: translateX(calc(-1 * var(--scroll-distance, 0px))); }
+    }
+    .link-action {
+      width: 22px; height: 22px; flex-shrink: 0;
+      border: none; border-radius: 4px;
+      background: transparent;
+      color: rgba(255, 255, 255, 0.35);
+      font-size: 13px; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; padding: 0;
+    }
+    .link-action:hover { background: rgba(255, 255, 255, 0.1); color: rgba(255, 255, 255, 0.9); }
+    .link-action.delete:hover { color: #f87171; }
+    .link-action.done { color: #4ade80; }
+
+    /* ─── Hover copy for Claude's messages (clean source text, no gutters/hard wraps) ─── */
+    #message-copy {
+      position: absolute;
+      right: 6px;
+      display: none;
+      gap: 2px;
+      padding: 2px;
+      border-radius: 7px;
+      background: var(--pill-bg, rgba(37, 17, 71, 0.85));
+      border: 1px solid var(--pill-border, rgba(124, 58, 237, 0.4));
+      backdrop-filter: blur(6px);
+      z-index: 105;
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+      opacity: 0.55;
+      transition: opacity 0.15s;
+    }
+    #message-copy.visible { display: flex; }
+    #message-copy:hover { opacity: 1; }
+    .message-copy-btn {
+      display: flex; align-items: center; justify-content: center;
+      width: 24px; height: 22px; padding: 0;
+      border: none; border-radius: 5px;
+      background: transparent;
+      color: var(--pill-fg, rgba(255, 255, 255, 0.85));
+      font: inherit; font-size: 11px; font-weight: 500;
+      cursor: pointer; white-space: nowrap;
+    }
+    .message-copy-btn:hover { background: rgba(255, 255, 255, 0.1); color: #fff; }
+    .message-copy-btn .check { display: none; }
+    .message-copy-btn.done { color: #4ade80; }
+    .message-copy-btn.done .icon { display: none; }
+    .message-copy-btn.done .check { display: block; }
+    /* Tints exactly the rows the hovered copy button would take */
+    #copy-highlight {
+      position: absolute;
+      display: none;
+      pointer-events: none;
+      background: var(--copy-hl, rgba(155, 107, 241, 0.3));
+      border-left: 3px solid var(--copy-hl-edge, rgb(190, 157, 246));
+      box-shadow: inset 0 0 0 1px var(--copy-hl-ring, rgba(172, 132, 243, 0.55));
+      border-radius: 0 4px 4px 0;
+      z-index: 104;
+    }
+    #copy-highlight.visible { display: block; }
+
     /* ─── Floating prompt toolbar (bottom-right of terminal) ─── */
     #prompt-toolbar {
       position: absolute;
@@ -375,6 +518,31 @@
     </div>
     <div id="terminal-container">
       <div id="terminal" class="terminal-pane active"></div>
+      <div id="copy-highlight"></div>
+      <div id="message-copy">
+        <button class="message-copy-btn" data-mode="block" title="Copy this paragraph, list or quote">
+          <svg class="icon" width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M7 13V3h5M10 3v10M7 3H6a3 3 0 0 0 0 6h1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <svg class="check" width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5l3 3 6-7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="message-copy-btn" data-mode="message" title="Copy Claude's whole message">
+          <svg class="icon" width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M2.5 4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4v5.5A1.5 1.5 0 0 1 12 11H7l-3 2.5V11a1.5 1.5 0 0 1-1.5-1.5V4z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M5.5 5.5h5M5.5 8h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          <svg class="check" width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5l3 3 6-7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div id="link-pills">
+        <div class="link-group" data-kind="pr">
+          <div class="link-pill"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></svg></div>
+          <div class="link-flyout"><div class="link-panel"><div class="link-panel-title">Pull requests</div><div class="link-list"></div></div></div>
+        </div>
+        <div class="link-group" data-kind="jira">
+          <div class="link-pill"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M11.571 11.513H0a5.218 5.218 0 0 0 5.232 5.215h2.13v2.057A5.215 5.215 0 0 0 12.575 24V12.518a1.005 1.005 0 0 0-1.005-1.005zm5.723-5.756H5.736a5.215 5.215 0 0 0 5.215 5.214h2.129v2.058a5.218 5.218 0 0 0 5.215 5.214V6.758a1.001 1.001 0 0 0-1.001-1.001zM23.013 0H11.455a5.215 5.215 0 0 0 5.215 5.215h2.129v2.057A5.215 5.215 0 0 0 24 12.483V1.005A1.001 1.001 0 0 0 23.013 0Z"/></svg></div>
+          <div class="link-flyout"><div class="link-panel"><div class="link-panel-title">Jira tickets</div><div class="link-list"></div></div></div>
+        </div>
+        <div class="link-group" data-kind="file">
+          <div class="link-pill"><svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M1.75 4.25c0-.83.67-1.5 1.5-1.5h3l1.5 1.75h5c.83 0 1.5.67 1.5 1.5v5.75c0 .83-.67 1.5-1.5 1.5H3.25c-.83 0-1.5-.67-1.5-1.5V4.25z" fill="currentColor" fill-opacity="0.25" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></div>
+          <div class="link-flyout"><div class="link-panel"><div class="link-panel-title">Local files</div><div class="link-list"></div></div></div>
+        </div>
+      </div>
       <div id="prompt-toolbar">
         <button class="prompt-tool-btn" id="copy-prompt-btn" title="Copy prompt to clipboard">
           <svg viewBox="0 0 16 16" fill="none"><rect x="5" y="5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M3 10V3.5a.5.5 0 0 1 .5-.5H10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>

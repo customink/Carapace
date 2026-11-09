@@ -12,6 +12,8 @@ export interface SessionUpdate {
   projectPath: string
   /** Raw encoded project dir name (e.g. "-Users-ivan-myproject") for exact matching */
   projectEncoded: string
+  /** Absolute path of the JSONL that changed (may be a subagent transcript) */
+  filePath: string
   parsed: ParsedSession
   cost: number
   contextPercent: number
@@ -100,6 +102,7 @@ export class SessionMonitor extends EventEmitter {
       sessionId,
       projectPath,
       projectEncoded: projectEncoded || '',
+      filePath,
       parsed,
       cost,
       contextPercent

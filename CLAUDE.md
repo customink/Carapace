@@ -228,6 +228,44 @@ Do not add an auto-launch path.
   works for forks) into `~/carapace-reviews/<repo>-pr<N>`, so the engineer's own branch and
   working tree are never touched.
 
+### Conversation Links (PR / Jira / local-file half-pills)
+GitHub PR links, Jira tickets and local files/folders mentioned in a conversation appear as
+half-pills at the top right of the Claude tab (PR, Jira, folder), tinted with the session color. Hover lists
+them with open / copy / delete.
+- `link-extractor.ts` — finds and canonicalises links (PRs via `parsePullRequestUrl`, Jira only
+  on `*.atlassian.net`, incl. `?selectedIssue=`). **Only user prompts and assistant text are
+  scanned** — tool calls/output, thinking and sidechains are skipped, or one `gh pr list` would
+  flood the list.
+- Bare Jira keys (`AC-877`) become links only for projects whose site `jira-projects.ts` has
+  learned — from full `…atlassian.net/browse/` links or Jira MCP calls (`cloudId` +
+  `issueIdOrKey`/`projectKey`) anywhere in a transcript, tool output included. Keys seen before
+  their project is learned wait in `pendingKeys` and resolve later. Never guess a site for an
+  unknown project: `UTF-8`, `SHA-256`, `ADR-023` are key-shaped too.
+- `local-paths.ts` — `~/…`, `/Users/…`, `/Volumes/…` paths and backticked bare file names
+  (resolved against folders named in the same message, then the entry's `cwd`). **Only paths
+  that exist** are kept, and only under home or `/Volumes` — not `.claude/` internals, hidden
+  top-level dirs (`~/.aws`), `~/Library` or temp dirs. Opening a runnable file (`.app`,
+  `.command`, `.sh`, executable bit…) reveals it in Finder instead of launching it.
+- `conversation-links.ts` — store keyed by `claudeSessionId`, scanned incrementally from a
+  persisted byte `offset` (transcripts reach 100MB+). Deleted URLs go in `dismissed` and are
+  never re-added. `/clear` carries links over to the new ID (in `hook-server.ts`).
+- Fed by the JSONL watcher in `handlers.ts` (main transcript of a Carapace-owned conversation
+  only); `terminal:links-get` backfills a revived conversation on first load.
+- The flyout is built with `textContent` only — link text is untrusted conversation content
+  and the terminal preload can write to the PTY. `terminal:links-open` only opens URLs already
+  in that conversation's store.
+
+### Clean Message Copy (hover toolbar)
+Hovering one of Claude's messages shows **Paragraph** / **Message** copy buttons. The screen is a
+rendering (hard wraps, indentation, `●`/`│` gutters, styled markdown), so instead of copying it,
+the renderer sends the hovered block's rows to `terminal:copy-message` and `message-copy.ts`
+finds that block in the transcript (letters+digits-only matching, tail first) and copies the
+source as plain text: emphasis/backticks stripped, `[t](u)` → `t (u)`, list markers kept,
+blockquotes and fenced code copied as one unit (code verbatim). No match (still streaming, or
+under 12 chars) → falls back to `reflowRows()` on the screen text with gutters stripped.
+Row classification (`rowKind()` in `terminal-main.ts`) excludes prompts, tool calls/output and
+status lines.
+
 ### Dynamic Dock Icon
 - `icon-generator.ts`: generates colored orb NativeImages (PNG via raw CRC32+zlib)
 - Dock icon changes to match focused terminal's color
@@ -314,6 +352,8 @@ Defined in `ipc/channels.ts`. Key patterns:
 - `~/.claude/usage-data/carapace-repo-map.json` — `owner/repo` → local clone path
 - `~/carapace-reviews/<repo>-pr<N>/` — git worktrees created for PR reviews
 - `~/.claude/usage-data/carapace-schedules.json` — scheduled prompts
+- `~/.claude/usage-data/carapace-conversation-links.json` — PR / Jira links per conversation (+ scan offset, dismissed)
+- `~/.claude/usage-data/carapace-jira-projects.json` — learned Jira project key → site (`AC` → `customink.atlassian.net`)
 - `~/.claude/usage-data/carapace-filetree-settings.json` — file tree show hidden toggle
 - `~/.claude/carapace/app-settings.json` — app settings (chime, orb click actions)
 - `https://api.claude.ai/api/usage` — rate limit usage (cached 3min)

@@ -11,7 +11,10 @@ import { parseSessionJsonl } from '../services/jsonl-parser'
 import { computeDetailedCost } from '../services/cost-calculator'
 import { PROJECTS_DIR } from '@shared/constants/paths'
 import { formatModelName } from '@shared/utils/format'
+import { isMainTranscript } from '../services/session-history'
+import { scanConversationTranscript } from '../services/conversation-links'
 import * as ptyManager from '../services/pty-manager'
+import { TEST_TITLE_PREFIX } from '../test-instance'
 import { loadDailyTokens, recordSessionData, getDailyTokens, getDailySessionBreakdown, resetDailyTokens } from '../services/daily-tokens-store'
 import type { SessionUpdate } from '../services/session-monitor'
 import type { SessionState } from '@shared/types/session'
@@ -172,7 +175,7 @@ function scheduleBroadcast(): void {
       if (currentTitle.includes(modelDisplay)) continue
 
       // Append model: "Title" → "Title - Opus 4.6"
-      const baseTitle = ptySess.title || 'Claude Code'
+      const baseTitle = TEST_TITLE_PREFIX + (ptySess.title || 'Claude Code')
       const newTitle = `${baseTitle} - ${modelDisplay}`
       termWin.setTitle(newTitle)
       termWin.webContents.send(IPC_CHANNELS.TERMINAL_TITLE_UPDATED, newTitle)
@@ -222,6 +225,13 @@ export function startSessionMonitor(): void {
     const prevCount = directCompletionCounts.get(fileKey) || 0
 
     const ptySessions = ptyManager.getByEncodedCwd(update.projectEncoded)
+
+    // Pick up PR / Jira links from the new lines — only for conversations a Carapace
+    // terminal owns, and only from the main transcript (not subagent sidechains)
+    if (update.sessionId && isMainTranscript(update.filePath, update.sessionId) &&
+        ptyManager.getAllSessions().some(p => p.claudeSessionId === update.sessionId)) {
+      scanConversationTranscript(update.sessionId, update.filePath)
+    }
 
     // The Claude Code session ID is NOT inferred here. It's assigned at spawn
     // (--session-id / --resume) and kept current by the SessionStart hook. Guessing

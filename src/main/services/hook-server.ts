@@ -1,6 +1,7 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import * as ptyManager from './pty-manager'
 import { updateHistoryEntry, isValidSessionId, isMainTranscript } from './session-history'
+import { carryOverConversationLinks, scanConversationTranscript, notifyConversationLinks } from './conversation-links'
 
 export const HOOK_PORT = 7799
 
@@ -67,8 +68,13 @@ function bindSessionId(req: IncomingMessage, payload: SessionStartPayload): void
   const session = sessionFromHeaders(req)
   if (!session || session.claudeSessionId === session_id) return
   console.log(`[hooks] ${session.ptyId} → session ${session_id} (${source})`)
+  const previousId = session.claudeSessionId
   session.claudeSessionId = session_id
   updateHistoryEntry(session.ptyId, { claudeSessionId: session_id })
+  // /clear is a new conversation in the same terminal — keep its PR/Jira links.
+  // /resume switches to a different conversation, which has its own.
+  if (source === 'clear' && previousId) carryOverConversationLinks(previousId, session_id)
+  scanConversationTranscript(session_id, transcript_path!).then(() => notifyConversationLinks(session_id))
 }
 
 async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {

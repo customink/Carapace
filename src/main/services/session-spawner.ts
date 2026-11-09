@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, app, shell, Menu, dialog } from 'electron'
+import { ipcMain, BrowserWindow, app, shell, Menu, dialog, clipboard } from 'electron'
 import { exec } from 'child_process'
 import { SESSION_COLORS } from '@shared/constants/colors'
 import { createTerminalWindow } from '../windows/terminal'
@@ -17,13 +17,17 @@ import { addPreset } from './preset-store'
 import { exportContext } from './context-share'
 import { setDockIcon } from './icon-generator'
 import { IPC_CHANNELS } from '../ipc/channels'
-import { recordSession, updateHistoryEntry, isValidSessionId, transcriptExists, lastExistingCwd } from './session-history'
+import { recordSession, updateHistoryEntry, isValidSessionId, transcriptExists, lastExistingCwd, findTranscript } from './session-history'
+import { getConversationLinks, removeConversationLink, scanConversationTranscript, onConversationLinksChanged } from './conversation-links'
+import { copyTextFromTranscript, type CopyMode } from './message-copy'
+import { isRunnable } from './local-paths'
 import { discoverSessionsAsync, invalidateCache } from './session-discovery'
 import * as ptyManager from './pty-manager'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { randomUUID } from 'crypto'
+import { TEST_TITLE_PREFIX } from '../test-instance'
 
 let spawnCount = 0
 
@@ -37,7 +41,7 @@ export function spawnClaudeSession(bypass: boolean, title?: string, cwd?: string
 
   const ptyId = existingPtyId || `pty-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
-  const displayTitle = title || 'Claude Code'
+  const displayTitle = TEST_TITLE_PREFIX + (title || 'Claude Code')
 
   // Decide the Claude Code conversation ID up front so it never has to be guessed
   // from JSONL activity. Resume only if the transcript still exists — otherwise
@@ -177,6 +181,75 @@ export function registerTerminalIpc(): void {
   })
 
   // Session info request from renderer
+  // ─── PR / Jira links mentioned in the conversation (half-pills, top right) ───
+  const linksSessionFor = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    return win ? ptyManager.getByWindowId(win.id) : undefined
+  }
+
+  onConversationLinksChanged((claudeSessionId) => {
+    for (const session of ptyManager.getAllSessions()) {
+      if (session.claudeSessionId !== claudeSessionId) continue
+      const win = BrowserWindow.fromId(session.windowId)
+      if (win && !win.isDestroyed()) win.webContents.send('terminal:links-updated', getConversationLinks(claudeSessionId))
+    }
+  })
+
+  ipcMain.handle('terminal:links-get', async (event) => {
+    const session = linksSessionFor(event)
+    if (!session) return null // PTY not created yet — renderer retries
+    if (!session.claudeSessionId) return []
+    // Backfill: a revived conversation may have history this store has never scanned
+    const transcript = findTranscript(session.claudeSessionId)
+    if (transcript) await scanConversationTranscript(session.claudeSessionId, transcript)
+    return getConversationLinks(session.claudeSessionId)
+  })
+
+  ipcMain.on('terminal:links-remove', (event, url: string) => {
+    const session = linksSessionFor(event)
+    if (session?.claudeSessionId && typeof url === 'string') removeConversationLink(session.claudeSessionId, url)
+  })
+
+  // Only open URLs this conversation's store actually holds — never an arbitrary renderer string
+  ipcMain.on('terminal:links-open', (event, url: string) => {
+    const session = linksSessionFor(event)
+    if (!session?.claudeSessionId) return
+    const link = getConversationLinks(session.claudeSessionId).find(l => l.url === url)
+    if (!link) return
+    if (link.kind !== 'file') {
+      shell.openExternal(link.url).catch(() => {})
+    } else if (!fs.existsSync(link.url)) {
+      dialog.showMessageBox({ type: 'info', message: 'File not found', detail: `${link.url} no longer exists.` })
+    } else if (isRunnable(link.url)) {
+      // Paths come from conversation text — never launch something runnable from a click
+      shell.showItemInFolder(link.url)
+    } else {
+      shell.openPath(link.url).catch(() => {})
+    }
+  })
+
+  ipcMain.on('terminal:links-copy', (event, url: string) => {
+    const session = linksSessionFor(event)
+    if (!session?.claudeSessionId) return
+    const link = getConversationLinks(session.claudeSessionId).find(l => l.url === url)
+    if (link) clipboard.writeText(link.url)
+  })
+
+  // Clean copy of a hovered message/block: source markdown from the transcript, as plain text.
+  // null → renderer falls back to reflowed screen text (e.g. the message is still streaming).
+  ipcMain.handle('terminal:copy-message', async (event, rows: unknown, mode: unknown) => {
+    const session = linksSessionFor(event)
+    if (!session?.claudeSessionId) return null
+    if (!Array.isArray(rows) || rows.length === 0 || rows.length > 5000) return null
+    if (mode !== 'block' && mode !== 'message') return null
+    const cleanRows = rows.filter((r): r is string => typeof r === 'string').map(r => r.slice(0, 4000))
+    const transcript = findTranscript(session.claudeSessionId)
+    if (!transcript) return null
+    const text = await copyTextFromTranscript(transcript, cleanRows, mode as CopyMode)
+    if (text) clipboard.writeText(text)
+    return text
+  })
+
   ipcMain.handle('terminal:session-info', (event) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return null

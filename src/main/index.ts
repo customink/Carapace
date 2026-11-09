@@ -4,6 +4,8 @@ import * as os from 'os'
 import { app, ipcMain, Menu, BrowserWindow, screen, dialog, shell, net, clipboard, globalShortcut, Notification } from 'electron'
 import { registerIpcHandlers, startSessionMonitor, stopSessionMonitor, resetAndBroadcastDailyTokens } from './ipc/handlers'
 import { startHookServer, stopHookServer } from './services/hook-server'
+import { flushConversationLinks } from './services/conversation-links'
+import { IS_TEST_INSTANCE } from './test-instance'
 import { prepareUpdate, launchPendingInstall, updateBlocker, pickMacZip, type ReleaseAsset } from './services/self-updater'
 import { installHooks, uninstallHooks } from './services/hook-installer'
 import { IPC_CHANNELS } from './ipc/channels'
@@ -76,6 +78,9 @@ if (app.isPackaged) app.setAsDefaultProtocolClient('carapace')
 // macOS handles single-instance for LaunchServices launches but not command-line ones.
 // Exit hard rather than app.quit() — quitting fires 'before-quit', and this process would
 // then run uninstallHooks() and tear down the hooks belonging to the instance that's running.
+// A test instance gets its own userData, so its single-instance lock is separate from the real app's
+if (IS_TEST_INSTANCE) app.setPath('userData', path.join(app.getPath('appData'), 'Carapace-Test'))
+
 if (!app.requestSingleInstanceLock()) {
   process.exit(0)
 }
@@ -210,12 +215,15 @@ app.whenReady().then(() => {
   registerIpcHandlers()
   registerTerminalIpc()
   startSessionMonitor()
-  startScheduler()
-  startHookServer()
-  installHooks()
+  // Machine-global side effects belong to the real instance — see test-instance.ts
+  if (!IS_TEST_INSTANCE) {
+    startScheduler()
+    startHookServer()
+    installHooks()
 
-  // Right-click a PR link anywhere -> Services -> "Review in Carapace"
-  installReviewService()
+    // Right-click a PR link anywhere -> Services -> "Review in Carapace"
+    installReviewService()
+  }
 
   // Backup for apps that don't surface the Services menu: copy a PR link, then press these.
   // ⌥⌘R opens the dialog, ⇧⌥⌘R runs the quick preset straight away.
@@ -223,7 +231,7 @@ app.whenReady().then(() => {
     ['Alt+Command+R', pr => void startReviewFlow(pr)],
     ['Shift+Alt+Command+R', pr => void startQuickReview(pr)],
   ]
-  for (const [accelerator, action] of shortcuts) {
+  for (const [accelerator, action] of IS_TEST_INSTANCE ? [] : shortcuts) {
     const ok = globalShortcut.register(accelerator, () => {
       const pr = extractPrUrl(clipboard.readText())
       if (!pr) {
@@ -1273,9 +1281,11 @@ app.on('before-quit', () => {
   globalShortcut.unregisterAll()
   // The Services entry is deliberately left installed — right-clicking a PR link is what
   // launches Carapace when it isn't running.
-  uninstallHooks()
+  // A test instance never installed the hooks — removing them would break the real instance
+  if (!IS_TEST_INSTANCE) uninstallHooks()
   stopHookServer()
   stopSessionMonitor()
+  flushConversationLinks()
   stopScheduler()
   ptyManager.destroyAll()
 })

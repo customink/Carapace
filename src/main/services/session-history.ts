@@ -75,7 +75,8 @@ export function transcriptExists(sessionId: string): boolean {
   return findTranscript(sessionId) !== null
 }
 
-function findTranscript(sessionId: string): string | null {
+/** Path of the top-level transcript for this conversation, wherever its project dir is. */
+export function findTranscript(sessionId: string): string | null {
   try {
     for (const dir of fs.readdirSync(PROJECTS_DIR)) {
       const file = path.join(PROJECTS_DIR, dir, `${sessionId}.jsonl`)

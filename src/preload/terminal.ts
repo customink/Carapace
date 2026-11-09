@@ -181,6 +181,18 @@ const terminalApi = {
     return () => { ipcRenderer.removeListener('terminal:title-updated', handler) }
   },
 
+  // PR / Jira links mentioned in the conversation
+  getLinks: () => ipcRenderer.invoke('terminal:links-get'),
+  removeLink: (url: string) => ipcRenderer.send('terminal:links-remove', url),
+  openLink: (url: string) => ipcRenderer.send('terminal:links-open', url),
+  copyLink: (url: string) => ipcRenderer.send('terminal:links-copy', url),
+  copyMessage: (rows: string[], mode: 'block' | 'message') => ipcRenderer.invoke('terminal:copy-message', rows, mode),
+  onLinksUpdated: (callback: (links: unknown[]) => void) => {
+    const handler = (_e: Electron.IpcRendererEvent, links: unknown[]) => callback(links)
+    ipcRenderer.on('terminal:links-updated', handler)
+    return () => { ipcRenderer.removeListener('terminal:links-updated', handler) }
+  },
+
   // Color updates
   onColorUpdated: (callback: (color: string) => void) => {
     const handler = (_e: Electron.IpcRendererEvent, color: string) => callback(color)

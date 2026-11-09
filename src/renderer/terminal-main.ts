@@ -4,6 +4,7 @@ import { createWrappedLinkProvider } from './wrapped-links'
 import '@xterm/xterm/css/xterm.css'
 import { SNIPPET_ICONS } from '@shared/constants/snippet-icons'
 import type { Snippet } from '@shared/types/snippet'
+import type { ConversationLink } from '@shared/types/conversation-link'
 
 declare global {
   interface Window {
@@ -59,6 +60,12 @@ declare global {
       slackCompose: () => void
       onTitleUpdated: (callback: (title: string) => void) => () => void
       onColorUpdated: (callback: (color: string) => void) => () => void
+      getLinks: () => Promise<ConversationLink[] | null>
+      removeLink: (url: string) => void
+      openLink: (url: string) => void
+      copyLink: (url: string) => void
+      copyMessage: (rows: string[], mode: 'block' | 'message') => Promise<string | null>
+      onLinksUpdated: (callback: (links: ConversationLink[]) => void) => () => void
       toggleStacks: () => void
       onStacksClosed: (callback: () => void) => () => void
     }
@@ -82,52 +89,61 @@ function tintedBackground(hex: string, tint = 0.08): string {
   return `#${tr}${tg}${tb}`
 }
 
+// Claude Code's CLI wraps its own prose (hanging-indent bullets, etc.) with hard
+// newlines rather than relying on the terminal's native autowrap, so xterm's
+// isWrapped flag is false for those rows. Copying them verbatim produces a
+// ragged mess when pasted elsewhere (e.g. Slack). We reflow: a row whose text
+// comes within word-wrap slack of the row's full width is treated as a
+// soft-wrapped continuation and joined with a space; everything else keeps a
+// real newline. Word-wrap breaks at the last space that fits, so a wrapped
+// row essentially never lands exactly on the last column — it falls short by
+// up to about one word's width, hence the tolerance rather than an exact match.
+// `cleanRow` post-processes each row's text (e.g. stripping gutter glyphs) after the
+// fullness check, which must see the row as rendered.
+function reflowRows(
+  terminal: Terminal,
+  start: { x: number; y: number },
+  end: { x: number; y: number },
+  cleanRow: (text: string) => string = t => t,
+): string {
+  const buf = terminal.buffer.active
+  const rows: { text: string; isWrapped: boolean; full: boolean }[] = []
+
+  for (let y = start.y; y <= end.y; y++) {
+    const line = buf.getLine(y)
+    if (!line) continue
+    const startCol = y === start.y ? start.x : 0
+    const endCol = y === end.y ? end.x : line.length
+    const text = line.translateToString(true, startCol, endCol)
+    const spanWidth = endCol - startCol
+    const slack = Math.min(24, Math.ceil(spanWidth * 0.25))
+    const full = endCol === line.length && spanWidth - text.length <= slack
+    rows.push({ text: cleanRow(text), isWrapped: line.isWrapped, full })
+  }
+
+  if (rows.length === 0) return ''
+
+  let result = rows[0].text
+  for (let i = 1; i < rows.length; i++) {
+    const prev = rows[i - 1]
+    const curr = rows[i]
+    if (curr.isWrapped) {
+      // Genuine terminal-native wrap: no character (including spaces) was lost.
+      result += curr.text
+    } else if (prev.full && curr.text.length > 0) {
+      result += ' ' + curr.text
+    } else {
+      result += '\n' + curr.text
+    }
+  }
+
+  return result.trimEnd()
+}
+
 function setupCopyPaste(terminal: Terminal, sendData: (data: string) => void) {
-  // Claude Code's CLI wraps its own prose (hanging-indent bullets, etc.) with hard
-  // newlines rather than relying on the terminal's native autowrap, so xterm's
-  // isWrapped flag is false for those rows. Copying them verbatim produces a
-  // ragged mess when pasted elsewhere (e.g. Slack). We reflow: a row whose text
-  // comes within word-wrap slack of the row's full width is treated as a
-  // soft-wrapped continuation and joined with a space; everything else keeps a
-  // real newline. Word-wrap breaks at the last space that fits, so a wrapped
-  // row essentially never lands exactly on the last column — it falls short by
-  // up to about one word's width, hence the tolerance rather than an exact match.
   function getCleanSelection(): string {
     const pos = terminal.getSelectionPosition()
-    if (!pos) return ''
-
-    const buf = terminal.buffer.active
-    const rows: { text: string; isWrapped: boolean; full: boolean }[] = []
-
-    for (let y = pos.start.y; y <= pos.end.y; y++) {
-      const line = buf.getLine(y)
-      if (!line) continue
-      const startCol = y === pos.start.y ? pos.start.x : 0
-      const endCol = y === pos.end.y ? pos.end.x : line.length
-      const text = line.translateToString(true, startCol, endCol)
-      const spanWidth = endCol - startCol
-      const slack = Math.min(24, Math.ceil(spanWidth * 0.25))
-      const full = endCol === line.length && spanWidth - text.length <= slack
-      rows.push({ text, isWrapped: line.isWrapped, full })
-    }
-
-    if (rows.length === 0) return ''
-
-    let result = rows[0].text
-    for (let i = 1; i < rows.length; i++) {
-      const prev = rows[i - 1]
-      const curr = rows[i]
-      if (curr.isWrapped) {
-        // Genuine terminal-native wrap: no character (including spaces) was lost.
-        result += curr.text
-      } else if (prev.full && curr.text.length > 0) {
-        result += ' ' + curr.text
-      } else {
-        result += '\n' + curr.text
-      }
-    }
-
-    return result.trimEnd()
+    return pos ? reflowRows(terminal, pos.start, pos.end) : ''
   }
 
   terminal.attachCustomKeyEventHandler((event) => {
@@ -462,6 +478,7 @@ async function init() {
     window.carapaceTerminal.updateShellTabNames(shellTabs.map(t => t.name))
   }
   const terminalContainer = document.getElementById('terminal-container')!
+  const linkPills = document.getElementById('link-pills')!
   const claudeTab = document.getElementById('tab-claude')!
   const claudePane = document.getElementById('terminal')!
   const addTabBtn = document.getElementById('add-tab-btn')!
@@ -472,6 +489,7 @@ async function init() {
 
   function switchTab(tabId: string) {
     activeTab = tabId
+    linkPills.classList.toggle('off-tab', tabId !== 'claude')
     claudeTab.classList.toggle('active', tabId === 'claude')
     claudePane.classList.toggle('active', tabId === 'claude')
     for (const st of shellTabs) {
@@ -906,7 +924,292 @@ async function init() {
     }
     claudeTerminal.options.theme = newTheme
     for (const st of shellTabs) st.terminal.options.theme = newTheme
+    applyLinkPillColor(newColor)
   })
+
+  // ─── Conversation links (PR / Jira half-pills, top right) ───
+  // Link labels come from conversation text (Slack, PR bodies, web pages) — untrusted, so the
+  // list is built with createElement/textContent only. This window can type into the PTY.
+  // Set on the container so the half-pills and the message-copy toolbar share them.
+  // Same tinted family as the tab bar / titlebar (session color scaled toward black), a
+  // step brighter so the pill reads as a control, with the raw color for the edge and icon
+  function applyLinkPillColor(hex: string) {
+    const { r, g, b } = hexToRgb(hex)
+    const tint = (k: number, a: number) => `rgba(${Math.round(r * k)}, ${Math.round(g * k)}, ${Math.round(b * k)}, ${a})`
+    terminalContainer.style.setProperty('--pill-bg', tint(0.3, 0.85))
+    terminalContainer.style.setProperty('--pill-bg-hover', tint(0.42, 0.95))
+    terminalContainer.style.setProperty('--pill-border', `rgba(${r}, ${g}, ${b}, 0.4)`)
+    // Copy highlight: lifted toward white so dark session colors still show on the dark background
+    const lift = (k: number, a: number) => `rgba(${Math.round(r + (255 - r) * k)}, ${Math.round(g + (255 - g) * k)}, ${Math.round(b + (255 - b) * k)}, ${a})`
+    terminalContainer.style.setProperty('--copy-hl', lift(0.25, 0.3))
+    terminalContainer.style.setProperty('--copy-hl-ring', lift(0.4, 0.55))
+    terminalContainer.style.setProperty('--copy-hl-edge', lift(0.5, 1))
+    terminalContainer.style.setProperty('--pill-fg', `rgb(${Math.round(r + (255 - r) * 0.45)}, ${Math.round(g + (255 - g) * 0.45)}, ${Math.round(b + (255 - b) * 0.45)})`)
+  }
+
+  function copyIcon(): SVGSVGElement {
+    const ns = 'http://www.w3.org/2000/svg'
+    const svg = document.createElementNS(ns, 'svg')
+    svg.setAttribute('width', '12'); svg.setAttribute('height', '12'); svg.setAttribute('viewBox', '0 0 16 16'); svg.setAttribute('fill', 'none')
+    const rect = document.createElementNS(ns, 'rect')
+    for (const [k, v] of [['x', '5'], ['y', '5'], ['width', '8'], ['height', '8'], ['rx', '1'], ['stroke', 'currentColor'], ['stroke-width', '1.3']]) rect.setAttribute(k!, v!)
+    const path = document.createElementNS(ns, 'path')
+    for (const [k, v] of [['d', 'M3 10V3.5a.5.5 0 0 1 .5-.5H10'], ['stroke', 'currentColor'], ['stroke-width', '1.3'], ['stroke-linecap', 'round']]) path.setAttribute(k!, v!)
+    svg.append(rect, path)
+    return svg
+  }
+
+  function renderLinks(links: ConversationLink[]) {
+    for (const group of Array.from(linkPills.querySelectorAll<HTMLElement>('.link-group'))) {
+      const items = links
+        .filter(l => l.kind === group.dataset.kind)
+        .sort((a, b) => b.firstSeen.localeCompare(a.firstSeen))
+      group.classList.toggle('has-links', items.length > 0)
+      const list = group.querySelector('.link-list')!
+      list.replaceChildren(...items.map(link => {
+        const row = document.createElement('div')
+        row.className = 'link-row'
+
+        const label = document.createElement('button')
+        label.className = 'link-label'
+        label.title = link.title ? `${link.title}\n${link.url}` : link.url
+        if (link.title) {
+          label.classList.add('has-title')
+          const key = document.createElement('span')
+          key.className = 'link-key'
+          key.textContent = link.label
+          const titleBox = document.createElement('span')
+          titleBox.className = 'link-title'
+          const titleText = document.createElement('span')
+          titleText.className = 'link-title-inner'
+          titleText.textContent = link.title
+          titleBox.append(titleText)
+          label.append(key, titleBox)
+        } else {
+          label.textContent = link.label
+        }
+        label.addEventListener('click', () => openLink(link.url))
+
+        const open = document.createElement('button')
+        open.className = 'link-action'
+        open.title = link.kind === 'file' ? (link.label.endsWith('/') ? 'Open in Finder' : 'Open') : 'Open in browser'
+        open.textContent = '↗'
+        open.addEventListener('click', () => openLink(link.url))
+
+        const copy = document.createElement('button')
+        copy.className = 'link-action'
+        copy.title = link.kind === 'file' ? 'Copy path' : 'Copy link'
+        copy.append(copyIcon())
+        copy.addEventListener('click', () => {
+          window.carapaceTerminal.copyLink(link.url)
+          copy.replaceChildren('✓')
+          copy.classList.add('done')
+          setTimeout(() => { copy.replaceChildren(copyIcon()); copy.classList.remove('done') }, 1200)
+        })
+
+        const del = document.createElement('button')
+        del.className = 'link-action delete'
+        del.title = 'Remove from this list'
+        del.textContent = '×'
+        del.addEventListener('click', () => {
+          window.carapaceTerminal.removeLink(link.url)
+          currentLinks = currentLinks.filter(l => l.url !== link.url)
+          renderLinks(currentLinks)
+          claudeTerminal.focus()
+        })
+
+        row.append(label, open, copy, del)
+        return row
+      }))
+    }
+  }
+
+  // Titles that overflow scroll; that can only be measured once the flyout is visible
+  for (const group of Array.from(linkPills.querySelectorAll<HTMLElement>('.link-group'))) {
+    group.addEventListener('mouseenter', () => requestAnimationFrame(() => {
+      for (const box of Array.from(group.querySelectorAll<HTMLElement>('.link-title'))) {
+        const inner = box.firstElementChild as HTMLElement
+        const distance = inner.scrollWidth - box.clientWidth
+        box.classList.toggle('scroll', distance > 0)
+        if (distance > 0) {
+          box.style.setProperty('--scroll-distance', `${distance}px`)
+          box.style.setProperty('--scroll-duration', `${Math.max(3, distance / 35)}s`)
+        }
+      }
+    }))
+  }
+
+  // ─── Hover copy for Claude's messages ───
+  // The screen shows Claude's markdown rendered: hard-wrapped, indented, with `●` / `│`
+  // gutters. Hovering a message offers clean copies of the hovered block or the whole message;
+  // main matches the rows against the transcript and copies the source as plain text.
+  const messageCopy = document.getElementById('message-copy')!
+  const copyHighlight = document.getElementById('copy-highlight')!
+  type RowKind = 'blank' | 'quote' | 'quoteBlank' | 'msgStart' | 'text' | 'stop'
+  // Claude Code's message bullet is ⏺ (U+23FA) on macOS and ● (U+25CF) elsewhere
+  const GUTTER_RE = /^\s*(?:[⏺●⎿│▎]\s?)*/
+
+  function rowText(y: number): string {
+    return claudeTerminal.buffer.active.getLine(y)?.translateToString(true) ?? ''
+  }
+
+  function rowKind(y: number): RowKind {
+    const t = rowText(y).trim()
+    if (!t) return 'blank'
+    if (t.startsWith('│')) return t.replace(/^│/, '').trim() ? 'quote' : 'quoteBlank'
+    // Prompt rows, tool calls (`● Bash(`) and their output (`⎿`), status lines, rules/boxes
+    if (/^(❯|>\s|⎿|[*✻✽✶✳✢✺✹]\s|[─━╭╰┌└])/.test(t)) return 'stop'
+    if (/^[⏺●]\s*[\w.:-]+\(/.test(t)) return 'stop'
+    if (/^[⏺●]/.test(t)) return 'msgStart'
+    return 'text'
+  }
+
+  /** Rows of the Claude message containing row y, or null if y isn't inside one */
+  function messageRange(y: number): { start: number; end: number } | null {
+    let start = y
+    for (let n = 0; ; n++) {
+      if (n > 3000) return null
+      const kind = rowKind(start)
+      if (kind === 'msgStart') break
+      if (kind === 'stop') return null
+      // The message's ⏺ row scrolled out of the scrollback: the top of the buffer is as far as it goes
+      if (start === 0) break
+      start--
+    }
+    const last = claudeTerminal.buffer.active.length - 1
+    let end = y
+    while (end < last && end - start < 3000) {
+      const kind = rowKind(end + 1)
+      if (kind === 'msgStart' || kind === 'stop') break
+      end++
+    }
+    while (end > start && rowKind(end) === 'blank') end--
+    return { start, end }
+  }
+
+  /** The paragraph / list / quote containing row y (quotes: contiguous `│` rows, blank `│` included) */
+  function blockRange(y: number, msg: { start: number; end: number }): { start: number; end: number } {
+    const inQuote = (k: RowKind) => k === 'quote' || k === 'quoteBlank'
+    const quote = inQuote(rowKind(y))
+    const belongs = (k: RowKind) => quote ? inQuote(k) : k === 'text' || k === 'msgStart'
+    let start = y
+    while (start > msg.start && rowKind(start) !== 'msgStart' && belongs(rowKind(start - 1))) start--
+    let end = y
+    while (end < msg.end && belongs(rowKind(end + 1)) && rowKind(end + 1) !== 'msgStart') end++
+    return { start, end }
+  }
+
+  let hovered: { block: { start: number; end: number }; msg: { start: number; end: number } } | null = null
+  let hideTimer: ReturnType<typeof setTimeout> | null = null
+  let moveFrame = 0
+
+  function hideMessageCopy(delay = 0) {
+    if (hideTimer) clearTimeout(hideTimer)
+    hideTimer = setTimeout(() => {
+      if (messageCopy.matches(':hover')) return
+      messageCopy.classList.remove('visible')
+      copyHighlight.classList.remove('visible')
+      hovered = null
+    }, delay)
+  }
+
+  claudePane.addEventListener('mousemove', (e) => {
+    if (moveFrame) return
+    const { clientX, clientY } = e
+    moveFrame = requestAnimationFrame(() => {
+      moveFrame = 0
+      if (activeTab !== 'claude' || claudeTerminal.hasSelection()) return hideMessageCopy()
+      const screen = claudePane.querySelector('.xterm-screen')
+      if (!screen) return
+      const rect = screen.getBoundingClientRect()
+      if (clientX < rect.left || clientX > rect.right) return
+      const cellHeight = rect.height / claudeTerminal.rows
+      const viewportY = claudeTerminal.buffer.active.viewportY
+      const y = viewportY + Math.floor((clientY - rect.top) / cellHeight)
+      const kind = rowKind(y)
+      if (kind === 'blank') return // between paragraphs: keep whatever is showing
+      const msg = kind === 'stop' ? null : messageRange(y)
+      if (!msg) return hideMessageCopy(250)
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null }
+      const block = blockRange(y, msg)
+      hovered = { block, msg }
+      const containerTop = terminalContainer.getBoundingClientRect().top
+      const anchorRow = Math.max(block.start, viewportY)
+      messageCopy.style.top = `${rect.top - containerTop + (anchorRow - viewportY) * cellHeight - 2}px`
+      messageCopy.classList.add('visible')
+    })
+  })
+  claudePane.addEventListener('mouseleave', () => hideMessageCopy(400))
+  messageCopy.addEventListener('mouseleave', () => hideMessageCopy(250))
+  claudeTerminal.onScroll(() => hideMessageCopy())
+  // Don't start an xterm selection or move focus when clicking the buttons
+  messageCopy.addEventListener('mousedown', (e) => e.preventDefault())
+
+  /** Tint the visible part of a row range — what the hovered button will copy */
+  function showCopyHighlight(range: { start: number; end: number }) {
+    const screen = claudePane.querySelector('.xterm-screen')
+    if (!screen) return
+    const rect = screen.getBoundingClientRect()
+    const containerRect = terminalContainer.getBoundingClientRect()
+    const cellHeight = rect.height / claudeTerminal.rows
+    const viewportY = claudeTerminal.buffer.active.viewportY
+    const first = Math.max(range.start, viewportY)
+    const last = Math.min(range.end, viewportY + claudeTerminal.rows - 1)
+    if (last < first) return copyHighlight.classList.remove('visible')
+    copyHighlight.style.top = `${rect.top - containerRect.top + (first - viewportY) * cellHeight}px`
+    copyHighlight.style.height = `${(last - first + 1) * cellHeight}px`
+    copyHighlight.style.left = `${rect.left - containerRect.left - 4}px`
+    copyHighlight.style.width = `${rect.width + 4}px`
+    copyHighlight.classList.add('visible')
+  }
+
+  const stripGutter = (text: string) => text.replace(GUTTER_RE, '')
+  for (const btn of Array.from(messageCopy.querySelectorAll<HTMLButtonElement>('.message-copy-btn'))) {
+    btn.addEventListener('mouseenter', () => {
+      if (hovered) showCopyHighlight(btn.dataset.mode === 'block' ? hovered.block : hovered.msg)
+    })
+    btn.addEventListener('mouseleave', () => copyHighlight.classList.remove('visible'))
+    btn.addEventListener('click', async () => {
+      if (!hovered) return
+      const mode = btn.dataset.mode as 'block' | 'message'
+      const range = mode === 'block' ? hovered.block : hovered.msg
+      const rows: string[] = []
+      for (let y = hovered.block.start; y <= hovered.block.end; y++) rows.push(stripGutter(rowText(y)).trim())
+      let text = await window.carapaceTerminal.copyMessage(rows, mode)
+      if (!text) {
+        // Not in the transcript yet (still streaming) or too short to match: reflow the screen text
+        const endLine = claudeTerminal.buffer.active.getLine(range.end)
+        text = reflowRows(claudeTerminal, { x: 0, y: range.start }, { x: endLine?.length ?? 0, y: range.end }, stripGutter)
+        await navigator.clipboard.writeText(text)
+      }
+      btn.classList.add('done')
+      setTimeout(() => btn.classList.remove('done'), 1200)
+    })
+  }
+
+  function openLink(url: string) {
+    window.carapaceTerminal.openLink(url)
+    claudeTerminal.focus()
+  }
+
+  let currentLinks: ConversationLink[] = []
+  applyLinkPillColor(color)
+  window.carapaceTerminal.onLinksUpdated((links) => {
+    currentLinks = links
+    renderLinks(links)
+  })
+  // The PTY is created asynchronously after page load; null means "not yet" — retry briefly
+  ;(async () => {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const links = await window.carapaceTerminal.getLinks()
+      if (links) {
+        currentLinks = links
+        renderLinks(links)
+        return
+      }
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+  })()
 
   // ─── GitHub ───
   const githubBtn = document.getElementById('github-btn')!
