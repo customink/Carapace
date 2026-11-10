@@ -84,8 +84,9 @@ Main Process (Node.js)          Preload (bridge)        Renderer (React)
 
 ### Session Pills (FloatingOrb.tsx)
 - Replaced mini-orbs with horizontal pills showing full session names
-- Arc around the right side of the orb, spreading ±spreadAngle from 3 o'clock
-- Hover pushes neighbors apart (distance-based: `10 / distance` degrees)
+- Stacked on a fixed vertical pitch (`PILL_HEIGHT + PILL_GAP`) so they never overlap, curving
+  around the right side of the orb along an ellipse sized to the stack (middle pills closest)
+- Hover pushes neighbors apart (distance-based: `8 / distance` px)
 - Newest sessions at top (descending sort)
 - Each pill shows: colored dot + name + context% + thinking spinner
 - Right-click for context menu: Rename, Set Emoji, Change Color, Save as Preset, Close
@@ -248,7 +249,8 @@ them with open / copy / delete.
   `.command`, `.sh`, executable bit…) reveals it in Finder instead of launching it.
 - `conversation-links.ts` — store keyed by `claudeSessionId`, scanned incrementally from a
   persisted byte `offset` (transcripts reach 100MB+). Deleted URLs go in `dismissed` and are
-  never re-added. `/clear` carries links over to the new ID (in `hook-server.ts`).
+  never re-added. Links never cross conversations — after `/clear` or `/resume` the pills show
+  only the new conversation's (rebinding in `hook-server.ts`).
 - Fed by the JSONL watcher in `handlers.ts` (main transcript of a Carapace-owned conversation
   only); `terminal:links-get` backfills a revived conversation on first load.
 - The flyout is built with `textContent` only — link text is untrusted conversation content

@@ -184,6 +184,7 @@ const terminalApi = {
   // PR / Jira links mentioned in the conversation
   getLinks: () => ipcRenderer.invoke('terminal:links-get'),
   removeLink: (url: string) => ipcRenderer.send('terminal:links-remove', url),
+  clearLinks: (kind: string) => ipcRenderer.send('terminal:links-clear', kind),
   openLink: (url: string) => ipcRenderer.send('terminal:links-open', url),
   copyLink: (url: string) => ipcRenderer.send('terminal:links-copy', url),
   copyMessage: (rows: string[], mode: 'block' | 'message') => ipcRenderer.invoke('terminal:copy-message', rows, mode),

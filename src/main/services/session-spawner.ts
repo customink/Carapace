@@ -18,7 +18,7 @@ import { exportContext } from './context-share'
 import { setDockIcon } from './icon-generator'
 import { IPC_CHANNELS } from '../ipc/channels'
 import { recordSession, updateHistoryEntry, isValidSessionId, transcriptExists, lastExistingCwd, findTranscript } from './session-history'
-import { getConversationLinks, removeConversationLink, scanConversationTranscript, onConversationLinksChanged } from './conversation-links'
+import { getConversationLinks, removeConversationLink, clearConversationLinks, scanConversationTranscript, onConversationLinksChanged } from './conversation-links'
 import { copyTextFromTranscript, type CopyMode } from './message-copy'
 import { isRunnable } from './local-paths'
 import { discoverSessionsAsync, invalidateCache } from './session-discovery'
@@ -208,6 +208,13 @@ export function registerTerminalIpc(): void {
   ipcMain.on('terminal:links-remove', (event, url: string) => {
     const session = linksSessionFor(event)
     if (session?.claudeSessionId && typeof url === 'string') removeConversationLink(session.claudeSessionId, url)
+  })
+
+  ipcMain.on('terminal:links-clear', (event, kind: string) => {
+    const session = linksSessionFor(event)
+    if (session?.claudeSessionId && (kind === 'pr' || kind === 'jira' || kind === 'file')) {
+      clearConversationLinks(session.claudeSessionId, kind)
+    }
   })
 
   // Only open URLs this conversation's store actually holds — never an arbitrary renderer string

@@ -62,6 +62,7 @@ declare global {
       onColorUpdated: (callback: (color: string) => void) => () => void
       getLinks: () => Promise<ConversationLink[] | null>
       removeLink: (url: string) => void
+      clearLinks: (kind: ConversationLink['kind']) => void
       openLink: (url: string) => void
       copyLink: (url: string) => void
       copyMessage: (rows: string[], mode: 'block' | 'message') => Promise<string | null>
@@ -957,6 +958,33 @@ async function init() {
     for (const [k, v] of [['d', 'M3 10V3.5a.5.5 0 0 1 .5-.5H10'], ['stroke', 'currentColor'], ['stroke-width', '1.3'], ['stroke-linecap', 'round']]) path.setAttribute(k!, v!)
     svg.append(rect, path)
     return svg
+  }
+
+  // "Clear all" asks for a second click: cleared links stay dismissed and never come back
+  for (const group of Array.from(linkPills.querySelectorAll<HTMLElement>('.link-group'))) {
+    const clear = group.querySelector<HTMLButtonElement>('.link-clear')!
+    let confirmTimer: ReturnType<typeof setTimeout> | null = null
+    const reset = () => {
+      if (confirmTimer) clearTimeout(confirmTimer)
+      confirmTimer = null
+      clear.classList.remove('confirm')
+      clear.textContent = 'Clear all'
+    }
+    clear.addEventListener('click', () => {
+      if (!clear.classList.contains('confirm')) {
+        clear.classList.add('confirm')
+        clear.textContent = 'Click to confirm'
+        confirmTimer = setTimeout(reset, 3000)
+        return
+      }
+      reset()
+      const kind = group.dataset.kind as ConversationLink['kind']
+      window.carapaceTerminal.clearLinks(kind)
+      currentLinks = currentLinks.filter(l => l.kind !== kind)
+      renderLinks(currentLinks)
+      claudeTerminal.focus()
+    })
+    group.addEventListener('mouseleave', reset)
   }
 
   function renderLinks(links: ConversationLink[]) {

@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
-import type { ConversationLink } from '@shared/types/conversation-link'
+import type { ConversationLink, ConversationLinkKind } from '@shared/types/conversation-link'
 import { extractLinks, extractJiraKeys, messageText } from './link-extractor'
 import { extractLocalPaths, displayPath } from './local-paths'
 import { learnJiraProjectsFromLine, learnJiraProject, resolveJiraKey, hasKnownJiraProjects, learnJiraTitlesFromEntry, getJiraTitle } from './jira-projects'
@@ -158,20 +158,15 @@ export function removeConversationLink(sessionId: string, url: string): void {
   else scheduleSave()
 }
 
-/**
- * /clear starts a new conversation ID in the same terminal. Carry the links (and
- * dismissals) over so the pills don't empty out — the user still thinks of it as one session.
- */
-export function carryOverConversationLinks(fromId: string, toId: string): void {
-  const from = load()[fromId]
-  if (!from || fromId === toId) return
-  const to = record(toId)
-  const known = new Set(to.links.map(l => l.url))
-  to.dismissed = [...new Set([...to.dismissed, ...from.dismissed])]
-  for (const link of from.links) {
-    if (!known.has(link.url) && !to.dismissed.includes(link.url)) to.links.push(link)
-  }
-  changed(toId)
+/** Remove every link of one kind (a pill's "Clear all"). Like single removals, they stay dismissed. */
+export function clearConversationLinks(sessionId: string, kind: ConversationLinkKind): void {
+  const rec = load()[sessionId]
+  if (!rec) return
+  const cleared = rec.links.filter(l => l.kind === kind)
+  if (cleared.length === 0) return
+  rec.links = rec.links.filter(l => l.kind !== kind)
+  rec.dismissed = [...new Set([...rec.dismissed, ...cleared.map(l => l.url)])]
+  changed(sessionId)
 }
 
 /** Read any new bytes of a conversation's transcript and pick up links from them. */
