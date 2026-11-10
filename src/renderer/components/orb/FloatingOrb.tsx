@@ -246,35 +246,33 @@ export function FloatingOrb() {
     const n = sessionSlice.length;
     if (n === 0) return [];
 
-    // Pills arc around the right side of the orb.
-    // Distribute along an arc from -spreadAngle to +spreadAngle (0 = 3 o'clock).
+    // Pills stack on a fixed vertical pitch so they never overlap, and curve around the right
+    // side of the orb: x follows an ellipse whose height covers the whole stack, so the middle
+    // pills sit closest to the orb and the top/bottom ones tuck in toward it.
+    // (Spacing them by angle on a circle capped the stack at the circle's diameter, ~100px,
+    // so beyond four pills they piled on top of each other.)
     // New pills appear above existing ones (lowest index = topmost).
-    const arcRadius = MAIN_ORB_SIZE / 2 + 16; // distance from orb center to pill left edge
-    const perPill = n <= 5 ? 16 : 20; // more spacing after 5 pills
-    const spreadAngle = Math.min(n * perPill, 80); // degrees, grows with count, max 80°
-    const stepDeg = n > 1 ? (spreadAngle * 2) / (n - 1) : 0;
+    const pitch = PILL_HEIGHT + PILL_GAP;
+    const arcRadius = MAIN_ORB_SIZE / 2 + 16; // horizontal distance from orb center to the middle pill
+    const halfSpan = ((n - 1) * pitch) / 2;
+    const ellipseHeight = Math.max(arcRadius, halfSpan + pitch);
 
     // Find hovered index for spread effect
     const hovIdx = sessionSlice.findIndex((s) => s.id === hoveredPillId);
 
     return sessionSlice.map((session, i) => {
-      // Base angle: top to bottom (negative = above center, positive = below)
-      let angleDeg = n > 1 ? -spreadAngle + stepDeg * i : 0;
+      // Offset from the orb's center line: top to bottom (negative = above)
+      let dy = i * pitch - halfSpan;
 
-      // Push neighbors apart when one pill is hovered — distance-based falloff
+      // Push neighbors apart when one pill is hovered (it grows) — closer neighbors move more
       if (hovIdx >= 0 && i !== hovIdx) {
         const diff = i - hovIdx;
-        const sign = diff > 0 ? 1 : -1;
-        const distance = Math.abs(diff);
-        const push = sign * (10 / distance); // closer neighbors push more
-        angleDeg += push;
+        dy += Math.sign(diff) * (8 / Math.abs(diff));
       }
 
-      const angleRad = (angleDeg * Math.PI) / 180;
-
-      // Position along the arc
-      const px = CENTER_X + Math.cos(angleRad) * arcRadius;
-      const py = CENTER_Y + Math.sin(angleRad) * arcRadius - PILL_HEIGHT / 2;
+      const t = Math.min(1, Math.abs(dy) / ellipseHeight);
+      const px = CENTER_X + arcRadius * Math.sqrt(1 - t * t);
+      const py = CENTER_Y + dy - PILL_HEIGHT / 2;
 
       const name = session.title || session.firstPrompt || "Claude Code";
       const displayName = name.length > 28 ? name.slice(0, 26) + "..." : name;
@@ -623,7 +621,8 @@ export function FloatingOrb() {
             onClick={(e) => handlePillClick(e, pill.pid)}
             onContextMenu={(e) => handlePillContextMenu(e, pill.pid)}
           >
-            {/* Colored dot */}
+            {/* Colored dot — carries the bell when the session has a response waiting,
+                so the name stays readable */}
             <div
               style={{
                 width: 18,
@@ -632,32 +631,35 @@ export function FloatingOrb() {
                 background: `linear-gradient(135deg, ${pill.rawColor}, ${pill.color})`,
                 flexShrink: 0,
                 boxShadow: `0 0 6px ${pill.rawColor}60`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 11,
+                lineHeight: 1,
               }}
-            />
+            >
+              {pill.needsAttention && "🔔"}
+            </div>
 
-            {/* Bell or name */}
-            {pill.needsAttention ? (
-              <span style={{ fontSize: 12, lineHeight: 1 }}>🔔</span>
-            ) : (
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  lineHeight: 1,
-                  color: "#fff",
-                  textShadow: "0 1px 2px rgba(0,0,0,0.5)",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  maxWidth: 200,
-                }}
-              >
-                {pill.name}
-              </span>
-            )}
+            {/* Name */}
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                lineHeight: 1,
+                color: "#fff",
+                textShadow: "0 1px 2px rgba(0,0,0,0.5)",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                maxWidth: 200,
+              }}
+            >
+              {pill.name}
+            </span>
 
             {/* Context % */}
-            {pill.contextPercent > 0 && !pill.needsAttention && (
+            {pill.contextPercent > 0 && (
               <span
                 style={{
                   fontSize: 10,
