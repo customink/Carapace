@@ -4,10 +4,11 @@ import * as os from 'os'
 import type { ConversationLink, ConversationLinkKind } from '@shared/types/conversation-link'
 import { extractLinks, extractJiraKeys, messageText } from './link-extractor'
 import { extractLocalPaths, displayPath } from './local-paths'
+import { learnArtifactTitlesFromLine, getArtifactTitle } from './artifact-titles'
 import { learnJiraProjectsFromLine, learnJiraProject, resolveJiraKey, hasKnownJiraProjects, learnJiraTitlesFromEntry, getJiraTitle } from './jira-projects'
 
 /**
- * GitHub PR + Jira ticket links mentioned in each conversation, keyed by Claude session ID
+ * GitHub PR, Jira ticket, Artifact and local-file links mentioned in each conversation, keyed by Claude session ID
  * so they survive revive (`--resume` keeps the ID).
  *
  * Transcripts are scanned incrementally: `offset` is the byte position up to which the file
@@ -30,8 +31,8 @@ interface ConversationRecord {
   updatedAt: string
 }
 
-/** 2: also harvest Jira ticket titles from tool results. 3: local files and folders */
-const SCAN_VERSION = 3
+/** 2: also harvest Jira ticket titles from tool results. 3: local files and folders. 4: Artifacts */
+const SCAN_VERSION = 4
 
 const MAX_PENDING_KEYS = 200
 
@@ -63,7 +64,20 @@ function load(): Record<string, ConversationRecord> {
 }
 
 /** Add a link unless it's known or dismissed. Returns true if added. */
+/** An artifact link without its `?sk=` share key — the same artifact either way */
+const artifactBase = (url: string) => url.split('?')[0]!
+
 function addLink(rec: ConversationRecord, link: Omit<ConversationLink, 'firstSeen'>, firstSeen: string): boolean {
+  if (link.kind === 'artifact') {
+    const base = artifactBase(link.url)
+    if (rec.dismissed.some(u => artifactBase(u) === base)) return false
+    const existing = rec.links.find(l => l.kind === 'artifact' && artifactBase(l.url) === base)
+    if (existing) {
+      // Upgrade to the shareable form once a share key shows up
+      if (link.url.includes('?sk=') && !existing.url.includes('?sk=')) { existing.url = link.url; return true }
+      return false
+    }
+  }
   if (rec.dismissed.includes(link.url) || rec.links.some(l => l.url === link.url)) return false
   rec.links.push({ ...link, firstSeen })
   return true
@@ -134,6 +148,11 @@ export function notifyConversationLinks(sessionId: string): void {
 
 export function getConversationLinks(sessionId: string): ConversationLink[] {
   return (load()[sessionId]?.links ?? []).map(link => {
+    // Artifacts: the title is the name (the ID means nothing to anyone), so it replaces the label
+    if (link.kind === 'artifact') {
+      const name = getArtifactTitle(link.label)
+      return name ? { ...link, label: name, title: undefined } : { ...link, label: `Artifact ${link.label.slice(0, 8)}` }
+    }
     const title = link.kind === 'jira' ? getJiraTitle(link.label)
       : link.kind === 'file' ? displayPath(path.dirname(link.url))
       : undefined
@@ -141,10 +160,10 @@ export function getConversationLinks(sessionId: string): ConversationLink[] {
   })
 }
 
-/** Titles are shared across conversations — refresh every conversation that lists these tickets */
+/** Titles are shared across conversations — refresh every conversation that lists these tickets/artifacts */
 function notifyTitles(keys: Set<string>): void {
   for (const [sessionId, rec] of Object.entries(load())) {
-    if (rec.links.some(l => l.kind === 'jira' && keys.has(l.label))) onChangeCallback?.(sessionId)
+    if (rec.links.some(l => (l.kind === 'jira' || l.kind === 'artifact') && keys.has(l.label))) onChangeCallback?.(sessionId)
   }
 }
 
@@ -202,10 +221,12 @@ async function scan(sessionId: string, transcriptPath: string): Promise<void> {
   const handleLine = (line: string) => {
     // Project → site evidence can be anywhere, tool calls and output included
     if (learnJiraProjectsFromLine(line).length > 0) learnedProject = true
+    // Artifact titles come from publish results (tool output) and link text
+    for (const id of learnArtifactTitlesFromLine(line)) learnedTitles.add(id)
     const maybeTitles = line.includes('summary') && line.includes('fields')
     const maybePaths = line.includes('~/') || line.includes('/Users/') || line.includes('/Volumes/') || line.includes('`')
     // Cheap prefilter before JSON.parse: a link host, a ticket-key shape, a Jira result, or a path
-    if (!maybeTitles && !maybePaths && !line.includes('github.com') && !line.includes('atlassian.net') && !/[A-Z]-\d/.test(line)) return
+    if (!maybeTitles && !maybePaths && !line.includes('github.com') && !line.includes('atlassian.net') && !line.includes('claude.ai/') && !/[A-Z]-\d/.test(line)) return
     let entry: unknown
     try { entry = JSON.parse(line) } catch { return }
     if (maybeTitles) for (const key of learnJiraTitlesFromEntry(entry)) learnedTitles.add(key)

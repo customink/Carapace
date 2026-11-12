@@ -212,7 +212,7 @@ export function registerTerminalIpc(): void {
 
   ipcMain.on('terminal:links-clear', (event, kind: string) => {
     const session = linksSessionFor(event)
-    if (session?.claudeSessionId && (kind === 'pr' || kind === 'jira' || kind === 'file')) {
+    if (session?.claudeSessionId && (kind === 'pr' || kind === 'jira' || kind === 'artifact' || kind === 'file')) {
       clearConversationLinks(session.claudeSessionId, kind)
     }
   })

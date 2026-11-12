@@ -41,7 +41,29 @@ export function extractJiraKeys(text: string): string[] {
   return [...new Set([...text.matchAll(BARE_JIRA_KEY_RE)].map(m => m[1]!))]
 }
 
-/** All GitHub PR and Jira ticket links in a block of text, canonicalised and deduped. */
+const ARTIFACT_ID_RE = /^[A-Za-z0-9-]{6,64}$/
+const SHARE_KEY_RE = /^[A-Za-z0-9_-]{6,128}$/
+
+/**
+ * Canonical claude.ai Artifact link — `claude.ai/artifact/<id>` or `claude.ai/code/artifact/<uuid>`
+ * — or null. A `?sk=` share key is kept: without it, people the artifact was shared with can't open it.
+ */
+export function parseArtifactUrl(input: string): ExtractedLink | null {
+  let url: URL
+  try {
+    url = new URL(input)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:' || url.hostname.toLowerCase() !== 'claude.ai') return null
+  const m = url.pathname.match(/^\/(code\/)?artifact\/([^/]+)\/?$/)
+  if (!m || !ARTIFACT_ID_RE.test(m[2]!)) return null
+  const sk = url.searchParams.get('sk')
+  const base = `https://claude.ai/${m[1] ?? ''}artifact/${m[2]}`
+  return { kind: 'artifact', url: sk && SHARE_KEY_RE.test(sk) ? `${base}?sk=${sk}` : base, label: m[2]! }
+}
+
+/** All GitHub PR, Jira ticket and Artifact links in a block of text, canonicalised and deduped. */
 export function extractLinks(text: string): ExtractedLink[] {
   const found = new Map<string, ExtractedLink>()
   for (const raw of text.match(URL_RE) || []) {
@@ -52,7 +74,9 @@ export function extractLinks(text: string): ExtractedLink[] {
       continue
     }
     const jira = parseJiraUrl(candidate)
-    if (jira) found.set(jira.url, jira)
+    if (jira) { found.set(jira.url, jira); continue }
+    const artifact = parseArtifactUrl(candidate)
+    if (artifact) found.set(artifact.url, artifact)
   }
   return [...found.values()]
 }

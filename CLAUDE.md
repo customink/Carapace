@@ -230,8 +230,8 @@ Do not add an auto-launch path.
   working tree are never touched.
 
 ### Conversation Links (PR / Jira / local-file half-pills)
-GitHub PR links, Jira tickets and local files/folders mentioned in a conversation appear as
-half-pills at the top right of the Claude tab (PR, Jira, folder), tinted with the session color. Hover lists
+GitHub PR links, Jira tickets, claude.ai Artifacts and local files/folders mentioned in a conversation appear as
+half-pills at the top right of the Claude tab (PR, Jira, artifact, folder), tinted with the session color. Hover lists
 them with open / copy / delete.
 - `link-extractor.ts` — finds and canonicalises links (PRs via `parsePullRequestUrl`, Jira only
   on `*.atlassian.net`, incl. `?selectedIssue=`). **Only user prompts and assistant text are
@@ -242,6 +242,9 @@ them with open / copy / delete.
   `issueIdOrKey`/`projectKey`) anywhere in a transcript, tool output included. Keys seen before
   their project is learned wait in `pendingKeys` and resolve later. Never guess a site for an
   unknown project: `UTF-8`, `SHA-256`, `ADR-023` are key-shaped too.
+- Artifacts: `claude.ai/artifact/<id>` and `claude.ai/code/artifact/<uuid>`, deduped by ID (a `?sk=`
+  share key is kept). `artifact-titles.ts` names them from the `<title>` of the local HTML a
+  publish result names ("Published /…/x.html at …"), else markdown link text, else the ID.
 - `local-paths.ts` — `~/…`, `/Users/…`, `/Volumes/…` paths and backticked bare file names
   (resolved against folders named in the same message, then the entry's `cwd`). **Only paths
   that exist** are kept, and only under home or `/Volumes` — not `.claude/` internals, hidden
@@ -357,6 +360,7 @@ Defined in `ipc/channels.ts`. Key patterns:
 - `~/carapace-reviews/<repo>-pr<N>/` — git worktrees created for PR reviews
 - `~/.claude/usage-data/carapace-schedules.json` — scheduled prompts
 - `~/.claude/usage-data/carapace-conversation-links.json` — PR / Jira links per conversation (+ scan offset, dismissed)
+- `~/.claude/usage-data/carapace-artifact-titles.json` — artifact ID → title (from published HTML / link text)
 - `~/.claude/usage-data/carapace-jira-projects.json` — learned Jira project key → site (`AC` → `customink.atlassian.net`)
 - `~/.claude/usage-data/carapace-filetree-settings.json` — file tree show hidden toggle
 - `~/.claude/carapace/app-settings.json` — app settings (chime, orb click actions)
