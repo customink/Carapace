@@ -1,6 +1,6 @@
 {
   "name": "carapace",
-  "version": "0.17.8",
+  "version": "0.17.9",
   "description": "Visual terminal wrapper for Claude Code",
   "main": "./out/main/index.js",
   "scripts": {
